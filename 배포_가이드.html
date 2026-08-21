@@ -1,0 +1,515 @@
+<title>계시록 암송 배포 가이드</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #F8F6F1;
+    --surface: #FFFEFB;
+    --surface-raised: #FFFFFF;
+    --ink: #1B2A4A;
+    --ink-soft: #4A5670;
+    --ink-faint: #7B8399;
+    --accent: #A8842C;
+    --accent-ink: #7A5F1B;
+    --accent-soft: #F3E9D2;
+    --ok: #2F7D5B;
+    --ok-soft: #E1F0E7;
+    --warn: #B36B1F;
+    --warn-soft: #FBEADA;
+    --border: #E4DFD3;
+    --code-bg: #101B33;
+    --code-ink: #E9EDF5;
+    --code-accent: #D9B15C;
+    --shadow: 0 1px 2px rgba(27,42,74,0.06), 0 8px 24px rgba(27,42,74,0.05);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10162A;
+      --surface: #1A2340;
+      --surface-raised: #1F2A4C;
+      --ink: #F0EEE6;
+      --ink-soft: #C7CCDA;
+      --ink-faint: #8993AC;
+      --accent: #D9B15C;
+      --accent-ink: #F0D28E;
+      --accent-soft: #2B2416;
+      --ok: #6FCB9F;
+      --ok-soft: #16291F;
+      --warn: #E0A05B;
+      --warn-soft: #2C2013;
+      --border: #33406090;
+      --code-bg: #0A0F1F;
+      --code-ink: #DCE3F5;
+      --code-accent: #D9B15C;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #10162A;
+    --surface: #1A2340;
+    --surface-raised: #1F2A4C;
+    --ink: #F0EEE6;
+    --ink-soft: #C7CCDA;
+    --ink-faint: #8993AC;
+    --accent: #D9B15C;
+    --accent-ink: #F0D28E;
+    --accent-soft: #2B2416;
+    --ok: #6FCB9F;
+    --ok-soft: #16291F;
+    --warn: #E0A05B;
+    --warn-soft: #2C2013;
+    --border: #33406090;
+    --code-bg: #0A0F1F;
+    --code-ink: #DCE3F5;
+    --code-accent: #D9B15C;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Noto Sans KR', -apple-system, sans-serif;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 56px 24px 120px;
+  }
+
+  header.top {
+    margin-bottom: 48px;
+  }
+
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    font-weight: 500;
+    margin-bottom: 14px;
+    display: block;
+  }
+
+  h1 {
+    font-family: 'Noto Serif KR', serif;
+    font-weight: 700;
+    font-size: clamp(28px, 4.4vw, 38px);
+    line-height: 1.28;
+    margin: 0 0 16px;
+    text-wrap: balance;
+    color: var(--ink);
+  }
+
+  .lede {
+    font-size: 16.5px;
+    color: var(--ink-soft);
+    max-width: 62ch;
+    margin: 0;
+  }
+
+  .result-preview {
+    margin-top: 28px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    flex-wrap: wrap;
+  }
+  .result-preview .arrow { color: var(--ink-faint); }
+  .result-preview .url { color: var(--accent-ink); font-weight: 500; }
+
+  section.card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 30px 32px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow);
+  }
+
+  .checklist-card h2 {
+    margin-top: 0;
+  }
+
+  h2 {
+    font-family: 'Noto Serif KR', serif;
+    font-weight: 600;
+    font-size: 20px;
+    margin: 0 0 18px;
+    color: var(--ink);
+  }
+
+  ul.checklist {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 10px;
+  }
+  ul.checklist li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 15px;
+    color: var(--ink-soft);
+  }
+  ul.checklist li::before {
+    content: "";
+    flex: none;
+    width: 17px;
+    height: 17px;
+    margin-top: 2px;
+    border-radius: 5px;
+    border: 1.5px solid var(--accent);
+    background: var(--accent-soft);
+  }
+  ul.checklist li b { color: var(--ink); font-weight: 600; }
+
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .step {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 20px;
+    padding: 28px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .step:last-child { border-bottom: none; }
+
+  .step-num {
+    font-family: 'Noto Serif KR', serif;
+    font-weight: 700;
+    font-size: 19px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .step h3 {
+    font-family: 'Noto Serif KR', serif;
+    font-size: 17.5px;
+    font-weight: 600;
+    margin: 5px 0 10px;
+    color: var(--ink);
+  }
+
+  .step p {
+    margin: 0 0 12px;
+    color: var(--ink-soft);
+    font-size: 15px;
+  }
+  .step p:last-child { margin-bottom: 0; }
+
+  code, .inline-code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.88em;
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    padding: 0.1em 0.42em;
+    border-radius: 5px;
+  }
+
+  .code-block {
+    position: relative;
+    background: var(--code-bg);
+    color: var(--code-ink);
+    border-radius: 10px;
+    padding: 16px 46px 16px 18px;
+    margin: 12px 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.65;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .code-block .cmt { color: var(--code-accent); opacity: 0.85; }
+  .copy-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.22);
+    color: var(--code-ink);
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 11px;
+    padding: 4px 9px;
+    border-radius: 6px;
+    cursor: pointer;
+    opacity: 0.8;
+  }
+  .copy-btn:hover { opacity: 1; background: rgba(255,255,255,0.08); }
+  .copy-btn:focus-visible, a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .callout {
+    display: flex;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    margin: 14px 0;
+    font-size: 14.5px;
+  }
+  .callout .tag {
+    flex: none;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    padding: 3px 7px;
+    border-radius: 5px;
+    height: fit-content;
+  }
+  .callout.tip {
+    background: var(--ok-soft);
+    color: var(--ink);
+  }
+  .callout.tip .tag { background: var(--ok); color: #fff; }
+  .callout.warn {
+    background: var(--warn-soft);
+    color: var(--ink);
+  }
+  .callout.warn .tag { background: var(--warn); color: #fff; }
+  .callout p { margin: 0; color: var(--ink-soft); }
+  .callout b { color: var(--ink); }
+
+  .divider-label {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 44px 0 18px;
+  }
+  .divider-label span {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    white-space: nowrap;
+  }
+  .divider-label::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  table.trouble {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  table.trouble th {
+    text-align: left;
+    font-family: 'Noto Serif KR', serif;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--ink-faint);
+    padding: 0 12px 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  table.trouble td {
+    padding: 14px 12px 14px 0;
+    border-bottom: 1px solid var(--border);
+    color: var(--ink-soft);
+    vertical-align: top;
+  }
+  table.trouble tr:last-child td { border-bottom: none; }
+  table.trouble td.symptom { color: var(--ink); font-weight: 500; width: 38%; }
+
+  footer.end {
+    margin-top: 40px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--ink-faint);
+  }
+
+  @media (max-width: 560px) {
+    .wrap { padding: 40px 16px 90px; }
+    section.card { padding: 22px 20px; }
+    .step { grid-template-columns: 36px 1fr; gap: 14px; }
+    .step-num { width: 34px; height: 34px; font-size: 16px; }
+    table.trouble, table.trouble thead, table.trouble tbody, table.trouble tr, table.trouble td, table.trouble th {
+      display: block;
+    }
+    table.trouble thead { display: none; }
+    table.trouble tr { padding: 14px 0; border-bottom: 1px solid var(--border); }
+    table.trouble td { border: none; padding: 4px 0; }
+    table.trouble td.symptom::before { content: "증상  "; color: var(--ink-faint); font-size: 12px; }
+    table.trouble td.fix::before { content: "해결  "; color: var(--ink-faint); font-size: 12px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="top">
+    <span class="eyebrow">DEPLOYMENT GUIDE · GITHUB PAGES</span>
+    <h1>계시록 암송 트레이너를<br>다른 사람들도 쓸 수 있게 배포하기</h1>
+    <p class="lede">GitHub Desktop만 사용하는 방법이에요. 명령어를 직접 입력할 필요는 없고, 화면의 버튼을 순서대로 누르기만 하면 됩니다. 전체 과정은 15~20분 정도 걸려요.</p>
+    <div class="result-preview">
+      <span>지금</span>
+      <span class="arrow">→</span>
+      <span class="url">https://[아이디].github.io/[저장소이름]/</span>
+      <span class="arrow">→</span>
+      <span>누구나 이 주소로 접속해서 바로 사용</span>
+    </div>
+  </header>
+
+  <section class="card checklist-card">
+    <h2>시작 전에</h2>
+    <ul class="checklist">
+      <li><span><b>준비된 것</b> — 폴더 안에 <span class="inline-code">git</span> 저장소를 이미 만들어 두었습니다. 첫 커밋(<span class="inline-code">계시록 암송 트레이너 초기 배포 준비</span>)까지 완료된 상태예요. 아래에서 바로 GitHub Desktop에 연결하면 됩니다.</span></li>
+      <li><span><b>필요한 것 1</b> — GitHub 계정 (없다면 2분이면 만듭니다, 무료)</span></li>
+      <li><span><b>필요한 것 2</b> — GitHub Desktop 앱 (무료, Mac용)</span></li>
+      <li><span><b>알아둘 점</b> — 저장소는 <b>공개(Public)</b>로 만드는 걸 권장해요. 성경 본문과 앱 코드에는 민감한 정보가 없고, 무료 계정에서 GitHub Pages를 가장 안정적으로 쓸 수 있는 방식이에요.</span></li>
+    </ul>
+  </section>
+
+  <div class="divider-label"><span>Step 1 – 4 · 저장소 게시</span></div>
+
+  <section class="card">
+    <div class="steps">
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div>
+          <h3>GitHub 계정 만들기 (이미 있다면 건너뛰기)</h3>
+          <p><span class="inline-code">github.com</span> 에 접속해서 우측 상단 <b>Sign up</b>으로 이메일과 비밀번호만 입력하면 됩니다. 아이디(username)는 나중에 주소에 그대로 들어가니 기억하기 쉬운 걸로 정해주세요. 예: <span class="inline-code">hoze7branch</span></p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div>
+          <h3>GitHub Desktop 설치 후 로그인</h3>
+          <p><span class="inline-code">desktop.github.com</span> 에서 Mac용을 내려받아 설치합니다. 실행 후 <b>Sign in to GitHub.com</b>을 눌러 1번에서 만든 계정으로 로그인하세요.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div>
+          <h3>이 폴더를 저장소로 추가하기</h3>
+          <p>GitHub Desktop 메뉴에서 <span class="inline-code">File → Add Local Repository</span>를 선택하고, <b>계시록암송웹개발</b> 폴더(바탕화면에 있는 그 폴더)를 지정합니다.</p>
+          <p>이미 git 저장소로 준비되어 있어서 바로 인식됩니다 — "create a repository" 안내가 뜨면 그건 무시하고, 목록에 저장소가 바로 나타나는지 확인하세요.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">4</div>
+        <div>
+          <h3>Publish repository 클릭</h3>
+          <p>왼쪽 상단의 <b>Publish repository</b> 버튼을 누릅니다. 이름을 확인하고(예: <span class="inline-code">revelation-memory-trainer</span>), <b>Keep this code private</b> 체크를 <b>해제</b>한 뒤 <b>Publish Repository</b>를 클릭하세요.</p>
+          <div class="callout warn">
+            <span class="tag">주의</span>
+            <p>"Keep this code private" 체크를 해제해야 무료 계정에서 GitHub Pages 주소가 바로 열립니다. 체크된 채로 두면 5번 단계에서 Pages 설정이 보이지 않을 수 있어요.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <div class="divider-label"><span>Step 5 · Pages 켜기</span></div>
+
+  <section class="card">
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">5</div>
+        <div>
+          <h3>GitHub 웹사이트에서 Pages 활성화</h3>
+          <p>GitHub Desktop에서 <span class="inline-code">Repository → View on GitHub</span>을 누르면 브라우저로 저장소 페이지가 열립니다. 상단 <b>Settings</b> 탭 → 왼쪽 메뉴 <b>Pages</b>로 이동하세요.</p>
+          <p><b>Build and deployment</b> 항목에서 Source를 <span class="inline-code">Deploy from a branch</span>로, Branch를 <span class="inline-code">main</span> / <span class="inline-code">/ (root)</span>로 지정하고 <b>Save</b>를 누릅니다.</p>
+          <div class="callout tip">
+            <span class="tag">TIP</span>
+            <p>저장 후 1~3분 정도 기다리면 같은 화면 상단에 <b>Your site is live at ...</b> 라는 문구와 함께 최종 주소가 표시됩니다. 그 주소를 학생·성도들에게 공유하면 됩니다.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider-label"><span>배포 이후</span></div>
+
+  <section class="card">
+    <h2>나중에 내용을 수정했다면</h2>
+    <p style="color:var(--ink-soft); font-size:15px; margin-top:-6px;">GitHub Desktop을 다시 열고, 왼쪽에 바뀐 파일 목록이 보이면 하단에 커밋 메시지(예: <span class="inline-code">문항 데이터 수정</span>)를 적고 <b>Commit to main</b> → <b>Push origin</b> 순서로 누르면 됩니다. 1~2분 뒤 같은 주소에 자동 반영돼요.</p>
+    <div class="callout warn">
+      <span class="tag">중요</span>
+      <p>오프라인 캐시(PWA) 때문에 이미 접속했던 사람 화면에는 옛 버전이 남아있을 수 있어요. 파일을 고칠 때마다 <span class="inline-code">sw.js</span> 맨 위의 <span class="inline-code">CACHE_VERSION</span> 값을 <span class="inline-code">rev-memory-v2</span> 처럼 한 칸씩 올려서 커밋하면, 사용자 브라우저가 새 버전을 자동으로 받아갑니다.</p>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>여러 학습자의 기록을 취합하고 싶다면</h2>
+    <p style="color:var(--ink-soft); font-size:15px; margin-top:-6px;">이 앱의 학습 기록은 <b>각자의 기기(브라우저)에만</b> 저장돼요. 서버에 모이는 구조가 아니라서, 부서 전체 통계를 보려면 아래 방식이 필요합니다.</p>
+    <ul class="checklist" style="margin-top:14px;">
+      <li><span>학습자가 앱의 <b>설정 → 백업 내보내기</b>에서 JSON 파일을 저장</span></li>
+      <li><span>그 파일들을 서무님께 전달 (카톡·이메일 등)</span></li>
+      <li><span>앱의 <b>학습 기록 → 리포트</b> 화면에서 여러 JSON을 한 번에 불러오면, 인원별·범위별 평균과 자주 틀리는 절이 자동으로 CSV로 정리됩니다</span></li>
+    </ul>
+  </section>
+
+  <div class="divider-label"><span>문제해결</span></div>
+
+  <section class="card">
+    <table class="trouble">
+      <thead><tr><th>증상</th><th>해결</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="symptom">Publish 버튼이 안 보이거나 회색이다</td>
+          <td class="fix">GitHub Desktop 좌측 상단에 계정이 로그인되어 있는지 확인하세요 (File → Options → Accounts).</td>
+        </tr>
+        <tr>
+          <td class="symptom">Pages 메뉴에서 저장할 브랜치가 없다고 나온다</td>
+          <td class="fix">4번 단계에서 Publish가 아직 안 된 상태예요. GitHub Desktop에서 Publish repository를 먼저 완료하세요.</td>
+        </tr>
+        <tr>
+          <td class="symptom">주소에 접속했는데 흰 화면만 나온다</td>
+          <td class="fix">저장 직후에는 1~3분 정도 배포 시간이 걸립니다. 잠시 후 새로고침(Shift+새로고침으로 캐시 무시)해보세요.</td>
+        </tr>
+        <tr>
+          <td class="symptom">"홈 화면에 추가"(PWA 설치)가 안 보인다</td>
+          <td class="fix">GitHub Pages 주소(https://...)로 접속했는지 확인하세요. 로컬 파일(file://)로 열면 설치 기능이 동작하지 않습니다.</td>
+        </tr>
+        <tr>
+          <td class="symptom">음성 입력 버튼이 비활성화되어 있다</td>
+          <td class="fix">역시 https 주소에서만 동작합니다. GitHub Pages로 배포한 뒤에는 정상적으로 켜집니다.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer class="end">계시록 암송 트레이너 · 7지부 신학부</footer>
+
+</div>
