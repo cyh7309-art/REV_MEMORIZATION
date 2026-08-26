@@ -214,6 +214,92 @@ const LAUNCH = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PA
   ok('CSV 내보내기 버튼이 생긴다', await page.isVisible('[data-action="report-csv"]'));
   await page.screenshot({ path: path.join(__dirname, 'shot-desktop-report.png') });
 
+  /* ---------- 본문 읽기 ---------- */
+  await page.click('[data-nav="read"]');
+  await page.waitForSelector('#screen-read .verses');
+  ok('본문 읽기 화면이 열린다', await page.isVisible('#screen-read .verses'));
+  ok('1장은 20절이 모두 표시된다', (await page.locator('#screen-read .vs').count()) === 20,
+     await page.locator('#screen-read .vs').count());
+  const v1 = await page.textContent('#screen-read .vs[data-verse="1"] .vs-text');
+  ok('실제 본문이 표시된다', v1.includes('예수 그리스도의 계시라'), v1.slice(0, 30));
+
+  // 장 이동
+  await page.click('[data-action="read-next"]');
+  await page.waitForTimeout(150);
+  ok('다음 장으로 넘어간다 (2장 29절)', (await page.locator('#screen-read .vs').count()) === 29,
+     await page.locator('#screen-read .vs').count());
+  await page.selectOption('#readChapter', '4');
+  await page.waitForTimeout(150);
+  ok('장 선택으로 이동한다 (4장 11절)', (await page.locator('#screen-read .vs').count()) === 11,
+     await page.locator('#screen-read .vs').count());
+  ok('1장에서는 이전 버튼이 꺼지지 않는다(4장)', !(await page.isDisabled('[data-action="read-prev"]')));
+
+  // 절을 눌러 범위 잡기
+  await page.click('#screen-read .vs[data-verse="2"] .vs-num');
+  await page.waitForTimeout(120);
+  ok('첫 절을 누르면 선택 안내가 뜬다', (await page.textContent('.read-pickbar')).includes('계 4:2'));
+  await page.click('#screen-read .vs[data-verse="5"] .vs-num');
+  await page.waitForTimeout(120);
+  ok('둘째 절을 누르면 범위가 된다', (await page.textContent('.read-pickbar')).includes('계 4:2~5'));
+  ok('선택된 절이 강조된다', (await page.locator('#screen-read .vs.sel').count()) === 4,
+     await page.locator('#screen-read .vs.sel').count());
+
+  // 가리고 읽기
+  await page.click('[data-action="read-cover"]');
+  await page.waitForTimeout(150);
+  ok('가림 모드가 켜진다', await page.locator('#screen-read .read-body.covered').count() === 1);
+  ok('가림 상태에서는 아직 펼쳐진 절이 없다',
+     (await page.locator('#screen-read .vs-text.shown').count()) === 0);
+  await page.click('#screen-read .vs[data-verse="3"] .vs-text');
+  await page.waitForTimeout(120);
+  ok('절을 누르면 그 절만 펼쳐진다', (await page.locator('#screen-read .vs-text.shown').count()) === 1,
+     await page.locator('#screen-read .vs-text.shown').count());
+  await page.click('[data-action="read-cover"]');
+  await page.waitForTimeout(150);
+  ok('가림을 끄면 본문이 다시 보인다', await page.locator('#screen-read .read-body.covered').count() === 0);
+
+  // 글자 크기
+  const fsBefore = await page.getAttribute('#screen-read .read-body', 'class');
+  await page.click('[data-action="read-font"]');
+  await page.waitForTimeout(150);
+  const fsAfter = await page.getAttribute('#screen-read .read-body', 'class');
+  ok('글자 크기 버튼이 크기를 바꾼다', fsBefore !== fsAfter, fsBefore + ' → ' + fsAfter);
+  await page.reload();
+  await page.waitForSelector('.hero-ref');
+  await page.click('[data-nav="read"]');
+  await page.waitForSelector('#screen-read .read-body');
+  ok('글자 크기가 새로고침 후에도 유지된다',
+     (await page.getAttribute('#screen-read .read-body', 'class')).includes('fs-lg'),
+     await page.getAttribute('#screen-read .read-body', 'class'));
+
+  // 읽기 → 암송으로 이어지기
+  await page.click('#screen-read .vs[data-verse="1"] .vs-num');
+  await page.click('#screen-read .vs[data-verse="3"] .vs-num');
+  await page.waitForTimeout(120);
+  await page.click('[data-action="read-memorize"]');
+  await page.waitForSelector('#answerInput');
+  ok('읽기에서 고른 범위로 암송이 시작된다',
+     (await page.textContent('.mem-ref')).includes('요한계시록 1:1-3'),
+     await page.textContent('.mem-ref'));
+
+  // 암송 결과 → 본문 다시 읽기 → 익힘 표시
+  await page.fill('#answerInput', await page.evaluate(() => RevData.getPassage(1, 1, 3).fullText));
+  await page.click('[data-action="submit"]');
+  await page.waitForSelector('.score-num');
+  ok('결과 화면에 본문 다시 읽기 버튼이 있다', await page.isVisible('[data-action="read-range"]'));
+  await page.click('[data-action="read-range"]');
+  await page.waitForSelector('#screen-read .verses');
+  // 앞선 테스트들이 이미 1장에 기록을 남겼으므로, 방금 만점 받은 1~3절만 콕 집어 확인한다.
+  const knownFlags = await page.evaluate(() => [1, 2, 3].map(function (v) {
+    var el = document.querySelector('#screen-read .vs[data-verse="' + v + '"]');
+    return el ? el.classList.contains('st-known') : false;
+  }));
+  ok('만점을 받은 절이 익힘으로 표시된다', knownFlags.every(Boolean), JSON.stringify(knownFlags));
+  const knownCount = await page.locator('#screen-read .vs.st-known').count();
+  ok('진도에 익힘 절 수가 반영된다',
+     (await page.textContent('#screen-read')).includes('익힘 ' + knownCount + '절'), knownCount);
+  await page.screenshot({ path: path.join(__dirname, 'shot-desktop-read.png'), fullPage: false });
+
   /* ---------- 모바일 ---------- */
   const mctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const mp = await mctx.newPage();
@@ -270,6 +356,24 @@ const LAUNCH = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PA
   await mp.waitForSelector('#screen-report .table');
   const repOverflow = await mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   ok('모바일 취합 화면에서 가로 스크롤이 없다 (표는 자체 스크롤)', repOverflow <= 0, repOverflow);
+
+  // 모바일 — 본문 읽기
+  await mp.click('.bottom-nav [data-nav="read"]');
+  await mp.waitForSelector('#screen-read .verses');
+  ok('모바일에서 본문 읽기가 열린다', await mp.isVisible('#screen-read .verses'));
+  const readOverflow = await mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  ok('모바일 본문 읽기에서 가로 스크롤이 없다', readOverflow <= 0, readOverflow);
+  ok('하단 네비게이션 6개가 모두 보인다', (await mp.locator('.bottom-nav .nav-item').count()) === 6,
+     await mp.locator('.bottom-nav .nav-item').count());
+  const navFits = await mp.evaluate(() => {
+    const nav = document.querySelector('.bottom-nav');
+    return nav.scrollWidth <= nav.clientWidth + 1;
+  });
+  ok('하단 네비게이션이 화면 폭 안에 들어간다', navFits);
+  await mp.click('#screen-read .vs[data-verse="1"] .vs-num');
+  await mp.waitForTimeout(120);
+  ok('모바일에서도 절 선택이 된다', (await mp.textContent('.read-pickbar')).includes('계 1:1'));
+  await mp.screenshot({ path: path.join(__dirname, 'shot-mobile-read.png'), fullPage: false });
 
   await browser.close();
 

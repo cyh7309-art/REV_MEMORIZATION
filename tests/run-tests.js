@@ -46,10 +46,11 @@ load('js/scorer.js');
 load('js/statistics.js');
 load('js/srs.js');
 load('js/plan.js');
+load('js/read.js');
 load('js/voice.js');
 load('js/report.js');
 
-const { RevData, RevDiff, RevScorer, RevStats, Store, RevSRS, RevPlan, RevVoice, RevReport } = sandbox;
+const { RevData, RevDiff, RevScorer, RevStats, Store, RevSRS, RevPlan, RevRead, RevVoice, RevReport } = sandbox;
 
 /* ---------- 미니 테스트 러너 ---------- */
 let pass = 0, fail = 0;
@@ -499,6 +500,75 @@ check('확장된 범위가 실제 본문으로 존재한다',
   advanced.plan.startVerse + '-' + advanced.plan.endVerse);
 check('21장은 27절이므로 1~8절로 확장', advanced.plan.endVerse === 8, advanced.plan.endVerse);
 Store.clearSrs(); Store.clearPlans(); Store.clearHistory();
+
+group('본문 읽기 — 절 선택 규칙');
+check('선택이 없으면 그 절 하나만 잡힌다',
+  JSON.stringify(RevRead.pickVerse(null, 5)) === JSON.stringify({ start: 5, end: 5 }));
+check('두 번째 절을 누르면 범위가 된다',
+  JSON.stringify(RevRead.pickVerse({ start: 3, end: 3 }, 7)) === JSON.stringify({ start: 3, end: 7 }));
+check('거꾸로 눌러도 앞뒤가 정렬된다',
+  JSON.stringify(RevRead.pickVerse({ start: 9, end: 9 }, 4)) === JSON.stringify({ start: 4, end: 9 }));
+check('같은 절을 다시 누르면 선택이 풀린다', RevRead.pickVerse({ start: 6, end: 6 }, 6) === null);
+check('범위가 잡힌 뒤 누르면 새로 시작한다',
+  JSON.stringify(RevRead.pickVerse({ start: 2, end: 8 }, 12)) === JSON.stringify({ start: 12, end: 12 }));
+check('0이나 빈 값은 선택을 바꾸지 않는다',
+  JSON.stringify(RevRead.pickVerse({ start: 1, end: 3 }, 0)) === JSON.stringify({ start: 1, end: 3 }));
+check('선택 라벨 — 단일 절', RevRead.selectionLabel({ start: 4, end: 4 }) === '4절');
+check('선택 라벨 — 범위', RevRead.selectionLabel({ start: 4, end: 9 }) === '4~9절');
+
+group('본문 읽기 — 글자 크기');
+check('알 수 없는 값은 기본값으로', RevRead.normalizeFont('xl') === 'md');
+check('유효한 값은 그대로', RevRead.normalizeFont('lg') === 'lg');
+check('한 단계 키우기', RevRead.nextFont('sm') === 'md');
+check('가장 큰 다음은 다시 가장 작게', RevRead.nextFont('lg') === 'sm');
+check('설정에 글자 크기가 저장된다', Store.saveSettings({ readFontSize: 'lg' }).readFontSize === 'lg');
+check('저장한 글자 크기가 다시 읽힌다', Store.getSettings().readFontSize === 'lg');
+check('다른 설정을 바꿔도 글자 크기는 유지된다',
+  Store.saveSettings({ showTimer: false }).readFontSize === 'lg');
+Store.saveSettings({ readFontSize: 'md', showTimer: true });
+check('글자 크기 기본값은 보통', Store.getSettings().readFontSize === 'md');
+
+group('본문 읽기 — 절별 익힘 상태');
+Store.clearHistory();
+Store.saveAttempt({ chapter: 3, startVerse: 1, endVerse: 3, score: 95, reference: '계 3:1-3' });
+Store.saveAttempt({ chapter: 3, startVerse: 5, endVerse: 6, score: 62, reference: '계 3:5-6' });
+Store.saveAttempt({ chapter: 4, startVerse: 1, endVerse: 2, score: 100, reference: '계 4:1-2' });
+const vstats = RevRead.verseStats(Store.getHistory(), 3);
+check('범위 안의 모든 절에 기록이 반영된다', !!(vstats[1] && vstats[2] && vstats[3]));
+check('90점 이상이면 익힘', vstats[2].status === 'known', vstats[2].status);
+check('기준 미달이면 학습 중', vstats[5].status === 'learning', vstats[5].status);
+check('시도하지 않은 절은 기록이 없다', vstats[10] === undefined);
+check('다른 장의 기록은 섞이지 않는다', RevRead.verseStats(Store.getHistory(), 4)[1].best === 100);
+check('최고 점수가 남는다', vstats[1].best === 95, vstats[1].best);
+Store.saveAttempt({ chapter: 3, startVerse: 1, endVerse: 1, score: 70, reference: '계 3:1' });
+const vstats2 = RevRead.verseStats(Store.getHistory(), 3);
+check('낮은 점수를 받아도 최고 점수는 유지된다', vstats2[1].best === 95, vstats2[1].best);
+check('마지막 시도 점수는 갱신된다', vstats2[1].last === 70, vstats2[1].last);
+check('시도 횟수가 누적된다', vstats2[1].attempts === 2, vstats2[1].attempts);
+check('빈 기록이면 빈 객체', JSON.stringify(RevRead.verseStats([], 1)) === '{}');
+check('장 번호가 없으면 빈 객체', JSON.stringify(RevRead.verseStats(Store.getHistory(), 0)) === '{}');
+
+group('본문 읽기 — 장 진도');
+const prog3 = RevRead.chapterProgress(Store.getHistory(), 3, RevData.getVerseCount(3));
+check('3장은 22절', prog3.total === 22, prog3.total);
+check('익힘 3절 (1~3절)', prog3.known === 3, prog3.known);
+check('학습 중 2절 (5~6절)', prog3.learning === 2, prog3.learning);
+check('나머지는 아직', prog3.untouched === 17, prog3.untouched);
+check('진도율은 익힌 절 기준', prog3.percent === Math.round((3 / 22) * 100), prog3.percent);
+check('기록 없는 장은 0%', RevRead.chapterProgress(Store.getHistory(), 9, 21).percent === 0);
+Store.clearHistory();
+
+group('본문 읽기 — 실제 본문 연결');
+check('모든 장의 절을 읽을 수 있다', RevData.getChapters().every(function (c) {
+  const n = RevData.getVerseCount(c);
+  return n > 0 && typeof RevData.getVerse(c, 1) === 'string' && typeof RevData.getVerse(c, n) === 'string';
+}));
+check('읽기에서 잡은 범위가 암송 본문으로 이어진다', (function () {
+  const picked = RevRead.pickVerse(RevRead.pickVerse(null, 2), 5);
+  const p = RevData.getPassage(1, picked.start, picked.end);
+  return p !== null && p.verses.length === 4 && p.startVerse === 2 && p.endVerse === 5;
+})());
+check('장 끝을 넘는 절은 본문이 없다', RevData.getPassage(1, 1, 999) === null);
 
 /* ---------- 결과 ---------- */
 console.log('\n' + '─'.repeat(52));

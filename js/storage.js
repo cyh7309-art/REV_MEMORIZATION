@@ -73,7 +73,8 @@
     strictPunctuation: false, // 문장부호까지 엄격히 비교
     voiceInput: true,         // 음성 암송 버튼 표시
     srsEnabled: true,         // 간격 반복 복습 사용
-    learnerName: ''           // 백업/취합에 표시할 이름
+    learnerName: '',          // 백업/취합에 표시할 이름
+    readFontSize: 'md'        // 본문 읽기 글자 크기 (sm | md | lg)
   };
 
   var NAME_MAX = 40;

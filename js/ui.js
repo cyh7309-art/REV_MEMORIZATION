@@ -102,6 +102,7 @@
       '<p class="hero-meta">' + escapeHtml(ctx.pick.reason) + ' · ' + ctx.pick.verseCount + '절 · ' + ctx.pick.charCount + '자</p>' +
       '<div class="btn-row">' +
         '<button class="btn btn-gold" data-action="start-today" type="button">암송 시작</button>' +
+        '<button class="btn btn-ghost" data-action="read-today" type="button">본문 먼저 읽기</button>' +
         '<button class="btn btn-ghost" data-action="go-select" type="button">다른 범위 고르기</button>' +
       '</div>' +
     '</div>';
@@ -249,6 +250,8 @@
 
     html += '<div class="btn-row" style="margin-top:16px">' +
       '<button class="btn btn-primary" data-action="start" type="button"' + (ctx.error ? ' disabled' : '') + '>암송 시작</button>' +
+      '<button class="btn btn-ghost" data-action="read-range" data-c="' + ctx.chapter + '" data-s="' + ctx.startVerse +
+        '" data-e="' + ctx.endVerse + '" type="button"' + (ctx.error ? ' disabled' : '') + '>📖 본문 보기</button>' +
       '<button class="btn btn-ghost" data-action="toggle-fav" type="button"' + (ctx.error ? ' disabled' : '') + '>' +
         (ctx.isFavorite ? '★ 즐겨찾기 해제' : '☆ 즐겨찾기에 추가') + '</button>' +
       '<button class="btn btn-ghost" data-action="whole-chapter" type="button">' + ctx.chapter + '장 전체</button>' +
@@ -399,6 +402,8 @@
             ctx.planStatus.nextEnd + '절) 암송</button>' : '') +
         '<button class="btn btn-primary" data-action="retry" type="button">다시 암송</button>' +
         (r.weakVerses.length ? '<button class="btn btn-gold" data-action="retry-weak" type="button">오답만 연습 (' + r.weakVerses.length + '절)</button>' : '') +
+        '<button class="btn btn-ghost" data-action="read-range" data-c="' + r.chapter + '" data-s="' + r.startVerse +
+          '" data-e="' + r.endVerse + '" type="button">📖 본문 다시 읽기</button>' +
         '<button class="btn btn-ghost" data-action="go-select" type="button">범위 변경</button>' +
         '<button class="btn btn-ghost" data-action="toggle-fav" type="button">' + (ctx.isFavorite ? '★ 즐겨찾기 해제' : '☆ 즐겨찾기') + '</button>' +
       '</div>' +
@@ -492,6 +497,103 @@
     if (op.type === 'missing') return '이 어절이 입력에서 빠졌습니다.';
     if (op.type === 'extra') return '정답에 없는 어절을 입력했습니다.';
     return '';
+  }
+
+  /* ---------- 본문 읽기 ---------- */
+
+  var FONT_LABEL = { sm: '작게', md: '보통', lg: '크게' };
+  var STATUS_LABEL = { known: '익힘', learning: '학습 중', none: '' };
+
+  function renderRead(ctx) {
+    var chapters = global.RevData.getChapters();
+    var c = ctx.chapter;
+    var verseCount = global.RevData.getVerseCount(c) || 0;
+    var prog = ctx.progress;
+    var sel = ctx.selection;
+
+    var html = '<div class="page-head"><h1 class="page-title">본문 읽기</h1>' +
+      '<p class="page-sub">암송 전에 본문을 눈으로 익히세요. 절을 누르면 그 범위를 바로 암송할 수 있습니다.</p></div>';
+
+    /* --- 장 이동 + 도구 --- */
+    html += '<div class="card read-tools">' +
+      '<div class="read-nav">' +
+        '<button class="btn btn-ghost btn-sm" data-action="read-prev" type="button"' +
+          (c <= chapters[0] ? ' disabled' : '') + ' aria-label="이전 장">‹</button>' +
+        '<div class="field read-chapter"><label class="sr-only" for="readChapter">장 선택</label>' +
+          '<select id="readChapter" data-role="read-chapter" aria-label="장 선택">' +
+          chapters.map(function (n) {
+            return '<option value="' + n + '"' + (Number(n) === Number(c) ? ' selected' : '') + '>' +
+              n + '장</option>';
+          }).join('') + '</select></div>' +
+        '<button class="btn btn-ghost btn-sm" data-action="read-next" type="button"' +
+          (c >= chapters[chapters.length - 1] ? ' disabled' : '') + ' aria-label="다음 장">›</button>' +
+      '</div>' +
+      '<div class="read-opts">' +
+        '<button class="btn btn-ghost btn-sm" data-action="read-font" type="button" ' +
+          'aria-label="글자 크기 바꾸기 (현재 ' + FONT_LABEL[ctx.fontSize] + ')">' +
+          '가<span class="opt-val">' + FONT_LABEL[ctx.fontSize] + '</span></button>' +
+        '<button class="btn ' + (ctx.cover ? 'btn-gold' : 'btn-ghost') + ' btn-sm" data-action="read-cover" ' +
+          'type="button" aria-pressed="' + (ctx.cover ? 'true' : 'false') + '">' +
+          (ctx.cover ? '🙈 가림 켜짐' : '👁 가리고 읽기') + '</button>' +
+      '</div>' +
+    '</div>';
+
+    /* --- 진도 --- */
+    html += '<div class="card"><div class="card-head">' +
+      '<h2 class="card-title"><span class="lead">📗</span>' + c + '장 진도</h2>' +
+      '<span class="muted">' + verseCount + '절</span></div>' +
+      '<div class="bar-row"><div class="bar"><i style="width:' + prog.percent + '%;background:var(--ok)"></i></div>' +
+      '<span class="bar-num">' + prog.percent + '%</span></div>' +
+      '<p class="muted" style="margin:10px 0 0">' +
+        '익힘 ' + prog.known + '절 · 학습 중 ' + prog.learning + '절 · 아직 ' + prog.untouched + '절' +
+      '</p></div>';
+
+    /* --- 선택 안내 --- */
+    html += '<div class="card read-pickbar' + (sel ? ' on' : '') + '">';
+    if (sel) {
+      var picking = (sel.start === sel.end);
+      html += '<div class="pick-info"><b>' +
+        escapeHtml(global.RevData.shortRef(c, sel.start, sel.end)) + '</b>' +
+        '<span class="muted"> · ' + (sel.end - sel.start + 1) + '절' +
+        (picking ? ' · 끝 절을 한 번 더 누르면 범위가 됩니다' : '') + '</span></div>' +
+        '<div class="btn-row">' +
+          '<button class="btn btn-primary btn-sm" data-action="read-memorize" type="button">이 범위 암송하기</button>' +
+          '<button class="btn btn-ghost btn-sm" data-action="read-clear" type="button">선택 해제</button>' +
+        '</div>';
+    } else {
+      html += '<p class="muted" style="margin:0">절 번호를 누르면 시작 절, 한 번 더 누르면 종료 절이 정해집니다. ' +
+        '장 전체를 한 번에 외우려면 아래 <b>' + c + '장 전체 암송</b>을 누르세요.</p>' +
+        '<div class="btn-row" style="margin-top:12px">' +
+          '<button class="btn btn-ghost btn-sm" data-action="read-whole" type="button">' + c + '장 전체 암송</button>' +
+        '</div>';
+    }
+    html += '</div>';
+
+    /* --- 본문 --- */
+    html += '<div class="card read-body fs-' + ctx.fontSize + (ctx.cover ? ' covered' : '') + '">' +
+      '<ol class="verses" start="1">';
+
+    for (var v = 1; v <= verseCount; v++) {
+      var text = global.RevData.getVerse(c, v) || '';
+      var st = ctx.verseStats[v];
+      var status = st ? st.status : 'none';
+      var inSel = sel && v >= sel.start && v <= sel.end;
+
+      html += '<li class="vs' + (inSel ? ' sel' : '') + ' st-' + status + '" data-verse="' + v + '">' +
+        '<button class="vs-num" data-action="read-pick" data-v="' + v + '" type="button" ' +
+          'aria-label="' + v + '절 선택' + (status !== 'none' ? ' (' + STATUS_LABEL[status] + ')' : '') + '"' +
+          (inSel ? ' aria-pressed="true"' : ' aria-pressed="false"') + '>' + v + '</button>' +
+        '<span class="vs-text" data-action="read-reveal" data-v="' + v + '">' + escapeHtml(text) + '</span>' +
+      '</li>';
+    }
+
+    html += '</ol>';
+    if (!verseCount) html += '<p class="empty">이 장의 본문을 찾을 수 없습니다.</p>';
+    html += '<p class="muted read-foot">' + escapeHtml(global.RevData.getBook()) + ' · ' +
+      escapeHtml(global.RevData.getVersion()) + '</p>';
+    html += '</div>';
+
+    return html;
   }
 
   /* ---------- 즐겨찾기 ---------- */
@@ -832,6 +934,7 @@
     renderSelect: renderSelect,
     renderMemorize: renderMemorize,
     renderResult: renderResult,
+    renderRead: renderRead,
     renderFavorites: renderFavorites,
     renderHistory: renderHistory,
     renderSettings: renderSettings,

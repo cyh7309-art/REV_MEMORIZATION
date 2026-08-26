@@ -24,10 +24,16 @@
     voiceBase: '',       // 음성 인식 시작 시점의 입력창 내용
     report: null,        // 취합 결과 (메모리에만 유지)
     reportFiles: [],
-    installPrompt: null  // PWA 설치 프롬프트
+    installPrompt: null, // PWA 설치 프롬프트
+    read: {              // 본문 읽기 화면
+      chapter: 1,
+      selection: null,   // {start, end} — 절을 눌러 잡은 범위
+      cover: false,      // 가리고 읽기 모드
+      revealed: {}       // 가림 상태에서 눌러서 펼친 절
+    }
   };
 
-  var SCREENS = ['home', 'select', 'memorize', 'result', 'favorites', 'history', 'settings', 'report'];
+  var SCREENS = ['home', 'select', 'read', 'memorize', 'result', 'favorites', 'history', 'settings', 'report'];
 
   /* ---------- 부팅 ---------- */
 
@@ -139,6 +145,7 @@
 
     if (name === 'home') return renderHome();
     if (name === 'select') return renderSelect();
+    if (name === 'read') return renderRead();
     if (name === 'favorites') return renderFavorites();
     if (name === 'history') return renderHistory();
     if (name === 'settings') return renderSettings();
@@ -480,6 +487,56 @@
     }
   }
 
+  /* ---------- 본문 읽기 ---------- */
+
+  function renderRead() {
+    var r = state.read;
+    var chapters = global.RevData.getChapters();
+    if (chapters.indexOf(r.chapter) < 0) r.chapter = chapters[0] || 1;
+
+    var history = global.Store.getHistory();
+    var verseCount = global.RevData.getVerseCount(r.chapter) || 0;
+
+    // 선택이 장 범위를 벗어나면 버린다 (장을 옮겼을 때)
+    if (r.selection && (r.selection.end > verseCount || r.selection.start < 1)) r.selection = null;
+
+    paint('read', global.UI.renderRead({
+      chapter: r.chapter,
+      selection: r.selection,
+      cover: r.cover,
+      fontSize: global.RevRead.normalizeFont(state.settings.readFontSize),
+      verseStats: global.RevRead.verseStats(history, r.chapter),
+      progress: global.RevRead.chapterProgress(history, r.chapter, verseCount)
+    }));
+
+    // 가림 모드에서 이미 펼쳐본 절은 다시 그려도 펼친 상태를 유지한다.
+    if (r.cover) {
+      Object.keys(r.revealed).forEach(function (v) {
+        var el = document.querySelector('#screen-read .vs-text[data-v="' + v + '"]');
+        if (el) el.classList.add('shown');
+      });
+    }
+
+    // 다른 화면에서 범위를 들고 왔다면 그 절이 보이도록 스크롤한다.
+    if (r.scrollTo) {
+      var target = document.querySelector('#screen-read .vs[data-verse="' + r.scrollTo + '"]');
+      if (target && target.scrollIntoView) target.scrollIntoView({ block: 'center' });
+      r.scrollTo = null;
+    }
+  }
+
+  /** 읽기 화면의 장을 옮긴다. 선택과 펼침 상태는 초기화한다. */
+  function readGoChapter(chapter) {
+    var chapters = global.RevData.getChapters();
+    if (chapters.indexOf(Number(chapter)) < 0) return;
+    state.read.chapter = Number(chapter);
+    state.read.selection = null;
+    state.read.revealed = {};
+    renderRead();
+  }
+
+  /* ---------- 즐겨찾기 ---------- */
+
   function renderFavorites() {
     var favorites = global.Store.getFavorites();
     var history = global.Store.getHistory();
@@ -637,7 +694,92 @@
 
     switch (action) {
       case 'go-select': go('select'); break;
+      case 'go-read': go('read'); break;
       case 'go-history': go('history'); break;
+
+      /* ---- 본문 읽기 ---- */
+      case 'read-today':
+        // 오늘의 암송 범위를 읽기 화면에서 미리 펼쳐 보여준다.
+        if (state.todayPick) {
+          state.read.chapter = state.todayPick.chapter;
+          state.read.selection = { start: state.todayPick.startVerse, end: state.todayPick.endVerse };
+          state.read.revealed = {};
+          state.read.scrollTo = state.todayPick.startVerse;
+        }
+        go('read');
+        break;
+
+      case 'read-range': {
+        // 결과·선택 화면에서 "이 범위 본문 보기"
+        var rc = Number(el.getAttribute('data-c'));
+        var rst = Number(el.getAttribute('data-s'));
+        var ren = Number(el.getAttribute('data-e'));
+        state.read.chapter = rc;
+        state.read.selection = { start: rst, end: ren };
+        state.read.revealed = {};
+        state.read.scrollTo = rst;
+        go('read');
+        break;
+      }
+
+      case 'read-prev': readGoChapter(state.read.chapter - 1); break;
+      case 'read-next': readGoChapter(state.read.chapter + 1); break;
+
+      case 'read-font':
+        state.settings = global.Store.saveSettings({
+          readFontSize: global.RevRead.nextFont(state.settings.readFontSize)
+        });
+        renderRead();
+        break;
+
+      case 'read-cover':
+        state.read.cover = !state.read.cover;
+        state.read.revealed = {};
+        renderRead();
+        global.UI.toast(state.read.cover
+          ? '본문을 가렸습니다. 절을 누르면 한 절씩 확인할 수 있습니다.'
+          : '본문을 모두 펼쳤습니다.');
+        break;
+
+      case 'read-pick': {
+        var pv = Number(el.getAttribute('data-v'));
+        state.read.selection = global.RevRead.pickVerse(state.read.selection, pv);
+        renderRead();
+        break;
+      }
+
+      case 'read-reveal':
+        // 가림 모드일 때만 본문을 눌러 한 절씩 확인한다.
+        if (state.read.cover) {
+          var rv = el.getAttribute('data-v');
+          state.read.revealed[rv] = true;
+          el.classList.add('shown');
+        }
+        break;
+
+      case 'read-clear':
+        state.read.selection = null;
+        renderRead();
+        break;
+
+      case 'read-whole': {
+        var wc = state.read.chapter;
+        var wmax = global.RevData.getVerseCount(wc) || 1;
+        sel.chapter = wc; sel.startVerse = 1; sel.endVerse = wmax;
+        startMemorization(global.RevData.getPassage(wc, 1, wmax));
+        break;
+      }
+
+      case 'read-memorize': {
+        var rs = state.read.selection;
+        if (!rs) { global.UI.toast('먼저 절을 선택해주세요.', true); break; }
+        sel.chapter = state.read.chapter;
+        sel.startVerse = rs.start;
+        sel.endVerse = rs.end;
+        startMemorization(global.RevData.getPassage(sel.chapter, sel.startVerse, sel.endVerse));
+        break;
+      }
+
       case 'go-favorites': go('favorites'); break;
       case 'go-settings': go('settings'); break;
       case 'go-report': go('report'); break;
@@ -847,6 +989,7 @@
     if (!t) return;
 
     var role = t.getAttribute && t.getAttribute('data-role');
+    if (role === 'read-chapter') { readGoChapter(Number(t.value)); return; }
     if (role) {
       var sel = state.selected;
       var value = Number(t.value);
@@ -934,6 +1077,15 @@
     }
     if (state.screen === 'result' && e.key === 'Escape') { e.preventDefault(); go('select'); }
     if (state.screen === 'report' && e.key === 'Escape') { e.preventDefault(); go('history'); }
+
+    if (state.screen === 'read') {
+      // 입력 요소에 포커스가 있을 때는 화살표를 가로채지 않는다.
+      var tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+      if (tag === 'select' || tag === 'input' || tag === 'textarea') return;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); readGoChapter(state.read.chapter - 1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); readGoChapter(state.read.chapter + 1); }
+      else if (e.key === 'Escape' && state.read.selection) { e.preventDefault(); state.read.selection = null; renderRead(); }
+    }
   }
 
   /* ---------- 시작 ---------- */

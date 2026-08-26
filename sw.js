@@ -7,7 +7,7 @@
    ============================================================ */
 'use strict';
 
-var CACHE_VERSION = 'rev-memory-v1';
+var CACHE_VERSION = 'rev-memory-v2';
 
 var ASSETS = [
   './',
@@ -23,6 +23,7 @@ var ASSETS = [
   './js/statistics.js',
   './js/srs.js',
   './js/plan.js',
+  './js/read.js',
   './js/voice.js',
   './js/report.js',
   './js/ui.js',
