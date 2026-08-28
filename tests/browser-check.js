@@ -375,6 +375,61 @@ const LAUNCH = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PA
   ok('모바일에서도 절 선택이 된다', (await mp.textContent('.read-pickbar')).includes('계 1:1'));
   await mp.screenshot({ path: path.join(__dirname, 'shot-mobile-read.png'), fullPage: false });
 
+  /* ---------- 안드로이드(갤럭시) 음성 중복 입력 회귀 방지 ----------
+     갤럭시 크롬은 onresult 마다 resultIndex 를 0 으로 주면서 지금까지의 결과를
+     통째로 다시 보낸다. 그 동작을 그대로 흉내내는 가짜 인식기를 심어
+     입력창 내용이 눈덩이처럼 불어나지 않는지 실제 화면에서 확인한다. */
+  const actx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const ap = await actx.newPage();
+  ap.on('pageerror', e => errors.push('[android pageerror] ' + e.message));
+  ap.on('console', m => { if (m.type() === 'error') errors.push('[android console] ' + m.text()); });
+
+  await ap.addInitScript(() => {
+    window.isSecureContext = true;
+    function AndroidLikeRecognition() { window.__rec = this; this._rows = []; }
+    AndroidLikeRecognition.prototype.start = function () {};
+    AndroidLikeRecognition.prototype.stop = function () { if (this.onend) this.onend(); };
+    AndroidLikeRecognition.prototype.say = function (text, isFinal) {
+      this._rows.push({ 0: { transcript: text }, isFinal: isFinal !== false, length: 1 });
+      this.onresult({ resultIndex: 0, results: this._rows });   // 항상 0
+    };
+    window.SpeechRecognition = AndroidLikeRecognition;
+  });
+
+  await ap.goto(FILE);
+  await ap.waitForSelector('.hero-ref');
+  await ap.click('.bottom-nav [data-nav="select"]');
+  await ap.waitForSelector('#selChapter');
+  await ap.selectOption('#selChapter', '20');
+  await ap.selectOption('#selStart', '1');
+  await ap.selectOption('#selEnd', '2');
+  await ap.click('[data-action="start"]');
+  await ap.waitForSelector('#answerInput');
+
+  ok('안드로이드 환경에서 음성 버튼이 활성화된다', !(await ap.isDisabled('[data-action="voice"]')));
+  await ap.click('[data-action="voice"]');
+  await ap.waitForTimeout(150);
+
+  const spoken = ['또 내가', '몸에', '천사가', '무저갱', '열쇠와', '큰 쇠사슬을'];
+  for (const w of spoken) {
+    await ap.evaluate(t => window.__rec.say(t), w);
+    await ap.waitForTimeout(40);
+  }
+  const heard = (await ap.inputValue('#answerInput')).trim();
+  ok('말한 그대로 입력된다 (중복 누적 없음)', heard === spoken.join(' '), heard);
+
+  await ap.evaluate(() => window.__rec.onend());   // 조용해서 안드로이드가 끊음
+  await ap.waitForTimeout(150);
+  ok('자동으로 다시 듣기를 이어간다', await ap.evaluate(() => RevVoice.isListening()));
+  await ap.evaluate(() => window.__rec.say('풀어 놓으리라'));
+  await ap.waitForTimeout(80);
+  const heard2 = (await ap.inputValue('#answerInput')).trim();
+  ok('자동 재개 후에도 앞 내용이 유지된다', heard2 === spoken.join(' ') + ' 풀어 놓으리라', heard2);
+
+  await ap.click('[data-action="voice"]');
+  await ap.waitForTimeout(150);
+  ok('마이크 버튼으로 끄면 멈춘다', (await ap.evaluate(() => RevVoice.isListening())) === false);
+
   await browser.close();
 
   console.log(results.join('\n'));

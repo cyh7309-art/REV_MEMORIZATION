@@ -388,6 +388,150 @@ check('문장 잇기 — 앞이 비면 뒤만', RevVoice.joinText('', '계시라
 check('문장 잇기 — 중복 공백 제거', RevVoice.joinText('계시라   ', '   이는') === '계시라 이는');
 check('정지 호출이 안전하다', (() => { RevVoice.stop(); return RevVoice.isListening() === false; })());
 
+/* 안드로이드(갤럭시) 크롬 중복 입력 회귀 방지
+   ------------------------------------------------------------
+   안드로이드 크롬은 onresult 마다 resultIndex 를 0 으로 주면서 지금까지 확정된
+   결과를 통째로 다시 보낸다. 예전 코드는 그것을 뒤에 계속 이어 붙여
+   "또 내가 / 또 내가 몸에 / 또 내가 몸에 천사가 …" 처럼 문장이 눈덩이처럼 불었다.
+   아래는 그 상황을 그대로 재현해 다시는 재발하지 않는지 확인한다. */
+group('음성 인식 결과 조립 (안드로이드 중복 방지)');
+
+function resultList(rows) {
+  // rows: [[전사내용, 확정여부], ...]
+  var list = rows.map(function (r) { return { 0: { transcript: r[0] }, isFinal: r[1], length: 1 }; });
+  list.length = rows.length;
+  return list;
+}
+/** 안드로이드처럼 "누적된 결과 전체"를 여러 번 흘려보낸다. */
+function feed(baseText, frames) {
+  var store = {};
+  var out = { final: baseText, interim: '', combined: baseText };
+  frames.forEach(function (rows) {
+    RevVoice.absorbResults(store, resultList(rows));
+    out = RevVoice.composeText(baseText, store);
+  });
+  return out;
+}
+
+const androidFrames = [
+  [['또 내가', true]],
+  [['또 내가', true], ['몸에', true]],
+  [['또 내가', true], ['몸에', true], ['천사가', true]],
+  [['또 내가', true], ['몸에', true], ['천사가', true], ['무저갱', true]]
+];
+check('누적 결과가 반복 전달돼도 중복되지 않는다',
+  feed('', androidFrames).final === '또 내가 몸에 천사가 무저갱',
+  feed('', androidFrames).final);
+
+check('같은 결과를 다섯 번 다시 보내도 결과가 같다', (function () {
+  var once = feed('', [androidFrames[3]]).final;
+  var many = feed('', [androidFrames[3], androidFrames[3], androidFrames[3],
+                       androidFrames[3], androidFrames[3]]).final;
+  return once === many && once === '또 내가 몸에 천사가 무저갱';
+})());
+
+check('부분 인식이 확정으로 바뀌어도 한 번만 남는다',
+  feed('', [
+    [['무저갱', false]],
+    [['무저갱 열쇠와', false]],
+    [['무저갱 열쇠와 큰 쇠사슬을', true]]
+  ]).final === '무저갱 열쇠와 큰 쇠사슬을');
+
+check('정말 같은 어구를 두 번 말하면 두 번 다 남는다',
+  feed('', [[['또 내가 보매', true], ['또 내가 보매', true]]]).final === '또 내가 보매 또 내가 보매');
+
+check('타이핑해 둔 내용 뒤에 이어 붙는다',
+  feed('먼저 친 내용', [[['음성 내용', true]]]).final === '먼저 친 내용 음성 내용');
+
+check('확정 전 부분 인식은 interim 으로 분리된다', (function () {
+  var r = feed('', [[['천사가', true], ['하늘로서', false]]]);
+  return r.final === '천사가' && r.interim === '하늘로서' && r.combined === '천사가 하늘로서';
+})());
+
+check('빈 전사 내용은 무시한다',
+  feed('', [[['', true], ['천사가', true], ['   ', true]]]).final === '천사가');
+
+check('결과가 없으면 원래 입력만 남는다', feed('원래대로', []).final === '원래대로');
+
+/* 마이크 동작 자체(시작 → 자동 재개 → 종료)는 가짜 인식기를 끼운
+   별도 실행 환경에서 확인한다. 기본 sandbox 에는 음성 API 가 없기 때문이다. */
+group('음성 인식 동작 — 자동 재개 / 종료');
+
+function voiceRig() {
+  const box = {
+    console, setTimeout, clearTimeout, Date, Math, JSON,
+    Array, Object, String, Number, Boolean, RegExp, Error,
+    location: { protocol: 'https:', hostname: 'app.test' },
+    isSecureContext: true
+  };
+  box.window = box; box.global = box;
+  let live = null;
+  function FakeRecognition() { live = this; }
+  FakeRecognition.prototype.start = function () {};
+  FakeRecognition.prototype.stop = function () { if (this.onend) this.onend(); };
+  box.SpeechRecognition = FakeRecognition;
+  vm.createContext(box);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/voice.js'), 'utf8'), box, { filename: 'voice.js' });
+  return { V: box.RevVoice, rec: () => live };
+}
+
+check('보안 컨텍스트에서는 사용 가능으로 판정', voiceRig().V.isAvailable() === true);
+
+check('안드로이드식 누적 전달을 받아도 입력이 부풀지 않는다', (function () {
+  const rig = voiceRig();
+  let text = '';
+  rig.V.start({ onInterim: t => { text = t; }, onFinal: t => { text = t; } }, '');
+  const rows = [];
+  ['또 내가', '몸에', '천사가', '무저갱', '열쇠와'].forEach(function (u) {
+    rows.push({ 0: { transcript: u }, isFinal: true, length: 1 });
+    rig.rec().onresult({ resultIndex: 0, results: rows });   // resultIndex 가 항상 0
+  });
+  return text.trim() === '또 내가 몸에 천사가 무저갱 열쇠와';
+})());
+
+check('조용해서 끊기면 이어서 다시 듣는다 (앞 내용 유지)', (function () {
+  const rig = voiceRig();
+  let text = '', ended = 0;
+  rig.V.start({ onFinal: t => { text = t; }, onEnd: () => { ended++; } }, '');
+  rig.rec().onresult({ resultIndex: 0, results: [{ 0: { transcript: '첫 문장' }, isFinal: true, length: 1 }] });
+  rig.rec().onend();                                          // 안드로이드가 스스로 종료
+  rig.rec().onresult({ resultIndex: 0, results: [{ 0: { transcript: '둘째 문장' }, isFinal: true, length: 1 }] });
+  return text.trim() === '첫 문장 둘째 문장' && ended === 0 && rig.V.isListening() === true;
+})());
+
+check('사용자가 끄면 자동 재개하지 않는다', (function () {
+  const rig = voiceRig();
+  let ended = 0;
+  rig.V.start({ onEnd: () => { ended++; } }, '');
+  rig.V.stop();
+  return ended === 1 && rig.V.isListening() === false;
+})());
+
+check('계속 조용하면 무한 재시도하지 않고 스스로 끝난다', (function () {
+  const rig = voiceRig();
+  let ended = 0;
+  rig.V.start({ onEnd: () => { ended++; } }, '');
+  for (let i = 0; i < 12; i++) { if (rig.rec()) rig.rec().onend(); }
+  return ended === 1 && rig.V.isListening() === false;
+})());
+
+check('마이크 거부는 재개하지 않고 사유를 알린다', (function () {
+  const rig = voiceRig();
+  let msg = '', ended = 0;
+  rig.V.start({ onError: m => { msg = m; }, onEnd: () => { ended++; } }, '');
+  rig.rec().onerror({ error: 'not-allowed' });
+  rig.rec().onend();
+  return /허용되지 않았습니다/.test(msg) && ended === 1 && rig.V.isListening() === false;
+})());
+
+check('잠깐 조용한 것(no-speech)은 오류로 알리지 않는다', (function () {
+  const rig = voiceRig();
+  let msg = '';
+  rig.V.start({ onError: m => { msg = m; } }, '');
+  rig.rec().onerror({ error: 'no-speech' });
+  return msg === '';
+})());
+
 group('여러 명 취합');
 function fakeBackup(name, rows) {
   return {
