@@ -7,7 +7,7 @@
    ============================================================ */
 'use strict';
 
-var CACHE_VERSION = 'rev-memory-v3';
+var CACHE_VERSION = 'rev-memory-v5';
 
 var ASSETS = [
   './',

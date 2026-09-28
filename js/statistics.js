@@ -158,6 +158,78 @@
     }).reverse();
   }
 
+  /* ---------- 지난 시도와 비교 ---------- */
+
+  /**
+   * 같은 범위를 이전에 암송한 기록 중 가장 최근 것을 찾는다.
+   * 오답만 연습(부분 범위)한 기록은 범위가 다르므로 자연히 제외된다.
+   * @param {Array} history 최신순 목록
+   * @param {object} attempt {chapter,startVerse,endVerse}
+   * @param {string} [excludeId] 이번 기록의 id (이미 저장된 뒤에 부를 때 자기 자신을 건너뛴다)
+   */
+  function previousAttempt(history, attempt, excludeId) {
+    if (!Array.isArray(history) || !attempt) return null;
+    for (var i = 0; i < history.length; i++) {
+      var h = history[i];
+      if (!h || h.partial) continue;
+      if (excludeId && h.id === excludeId) continue;
+      if (Number(h.chapter) === Number(attempt.chapter) &&
+          Number(h.startVerse) === Number(attempt.startVerse) &&
+          Number(h.endVerse) === Number(attempt.endVerse)) {
+        return h;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 이번 결과를 직전 기록과 견주어 무엇이 나아지고 무엇이 나빠졌는지 정리한다.
+   * @param {object} result RevScorer.score() 결과
+   * @param {?object} prev 직전 기록 (previousAttempt 결과)
+   * @returns {?object}
+   */
+  function compareWithPrevious(result, prev) {
+    if (!result || !prev) return null;
+
+    var diff = result.score - (Number(prev.score) || 0);
+    var prevWeak = Array.isArray(prev.weakVerses) ? prev.weakVerses.map(Number) : [];
+    var nowWeak = Array.isArray(result.weakVerses) ? result.weakVerses.map(Number) : [];
+
+    // 지난번엔 약했는데 이번엔 괜찮아진 절 / 그 반대
+    var fixed = prevWeak.filter(function (v) { return nowWeak.indexOf(v) < 0; });
+    var broke = nowWeak.filter(function (v) { return prevWeak.indexOf(v) < 0; });
+    var still = nowWeak.filter(function (v) { return prevWeak.indexOf(v) >= 0; });
+
+    var prevDuration = Number(prev.duration) || 0;
+
+    return {
+      prevScore: Number(prev.score) || 0,
+      prevAt: prev.createdAt,
+      prevDuration: prevDuration,
+      scoreDiff: diff,
+      better: diff > 0,
+      same: diff === 0,
+      fixedVerses: fixed,
+      brokenVerses: broke,
+      stillWeakVerses: still
+    };
+  }
+
+  /** 같은 범위를 몇 번째 암송하는지 (이번 것 포함) */
+  function attemptNumber(history, attempt, excludeId) {
+    if (!Array.isArray(history) || !attempt) return 1;
+    var n = 0;
+    for (var i = 0; i < history.length; i++) {
+      var h = history[i];
+      if (!h || h.partial) continue;
+      if (excludeId && h.id === excludeId) continue;
+      if (Number(h.chapter) === Number(attempt.chapter) &&
+          Number(h.startVerse) === Number(attempt.startVerse) &&
+          Number(h.endVerse) === Number(attempt.endVerse)) n++;
+    }
+    return n + 1;
+  }
+
   /* ---------- 성취 ---------- */
 
   var ACHIEVEMENTS = [
@@ -235,6 +307,9 @@
     weakestRanges: weakestRanges,
     weakVerses: weakVerses,
     recentScores: recentScores,
+    previousAttempt: previousAttempt,
+    compareWithPrevious: compareWithPrevious,
+    attemptNumber: attemptNumber,
     achievements: achievements,
     todayPick: todayPick,
     formatDuration: formatDuration,

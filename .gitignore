@@ -1,3 +1,6 @@
 .DS_Store
 Thumbs.db
 node_modules/
+
+# 채팅에서 내려받을 때 생긴 중복 사본 — 지우셔도 됩니다
+_삭제요망/

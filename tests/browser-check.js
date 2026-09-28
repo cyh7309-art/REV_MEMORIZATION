@@ -375,6 +375,163 @@ const LAUNCH = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PA
   ok('모바일에서도 절 선택이 된다', (await mp.textContent('.read-pickbar')).includes('계 1:1'));
   await mp.screenshot({ path: path.join(__dirname, 'shot-mobile-read.png'), fullPage: false });
 
+  /* ---------- 채점 결과 표시 ---------- */
+  await page.evaluate(() => {
+    const p2 = RevData.getPassage(1, 1, 4);
+    // 1절: 오타 / 2절: 정확 / 3절: 뒤 3어절 빠뜨림 / 4절: 정확 + 본문에 없는 말 추가
+    const typed = [
+      '1 ' + p2.verses[0].text.replace('속히', '속이'),
+      '2 ' + p2.verses[1].text,
+      '3 ' + p2.verses[2].text.split(' ').slice(0, -3).join(' '),
+      '4 ' + p2.verses[3].text + ' 할렐루야'
+    ].join(' ');
+    RevApp.state.passage = p2;
+    RevApp.state.selected = { chapter: 1, startVerse: 1, endVerse: 4 };
+    RevApp.state.result = RevScorer.score(p2, typed, { hintsUsed: 0, hintPenalty: true });
+    RevApp.state.lastUserText = typed;
+    RevApp.state.lastDuration = 200;
+    RevApp.state.onlyWrong = false;
+    RevApp.go('result');
+  });
+  await page.waitForSelector('.diff-flow');
+
+  // 절 번호(1·2·3·4)를 적었는데도 '잘못 넣음'으로 세지 않아야 한다
+  const extraCount = await page.evaluate(() => RevApp.state.result.counts.extra);
+  ok('절 번호를 적어도 잘못 넣음은 추가한 말 1개뿐', extraCount === 1, extraCount);
+
+  // 잘못 넣은 말에는 취소선이, 빠뜨린 말에는 취소선이 없어야 한다 (예전엔 반대였음)
+  const deco = await page.evaluate(() => {
+    const ex = document.querySelector('#screen-result .tk-extra .tk-main');
+    const ms = document.querySelector('#screen-result .tk-missing .tk-main');
+    const g = el => el ? getComputedStyle(el).textDecorationLine : 'none-element';
+    return { extra: g(ex), missing: g(ms) };
+  });
+  ok('잘못 넣은 말에는 취소선이 있다', deco.extra.includes('line-through'), deco.extra);
+  ok('빠뜨린 말에는 취소선이 없다', !deco.missing.includes('line-through'), deco.missing);
+
+  // 클릭하지 않아도 "내가 쓴 말"이 아래에 보인다
+  const subText = await page.evaluate(() => {
+    const t = [...document.querySelectorAll('#screen-result .tk-similar, #screen-result .tk-wrong')]
+      .map(el => (el.querySelector('.tk-sub') || {}).textContent || '');
+    return t.join('|');
+  });
+  ok('비슷함·틀림 어절 아래에 내가 쓴 말이 보인다', subText.includes('속이'), subText);
+  ok('빠뜨린 말에는 "안 씀" 표시', await page.isVisible('#screen-result .tk-missing .tk-sub'));
+  ok('잘못 넣은 말에는 "뺄 말" 표시',
+    (await page.textContent('#screen-result .tk-extra .tk-sub')).includes('뺄 말'));
+
+  // 오답 유형 요약
+  ok('오답 유형 요약이 보인다', await page.isVisible('.issue-list'));
+  const issueText = await page.textContent('.issue-list');
+  ok('빠뜨림 유형이 잡힌다', issueText.includes('빠뜨림'), issueText.slice(0, 80));
+  ok('잘못 넣음 유형이 잡힌다', issueText.includes('잘못 넣음'), issueText.slice(0, 80));
+
+  // 틀린 절만 보기
+  ok('틀린 절만 보기 버튼이 있다', await page.isVisible('[data-action="toggle-only-wrong"]'));
+  const allVerses = await page.locator('#screen-result .diff-verse').count();
+  await page.click('[data-action="toggle-only-wrong"]');
+  await page.waitForTimeout(150);
+  const fewer = await page.locator('#screen-result .diff-verse').count();
+  ok('누르면 틀린 절만 남는다', fewer < allVerses && fewer > 0, fewer + '/' + allVerses);
+  await page.click('[data-action="toggle-only-wrong"]');
+  await page.waitForTimeout(150);
+  ok('다시 누르면 전체가 돌아온다',
+    (await page.locator('#screen-result .diff-verse').count()) === allVerses);
+
+  // 용어가 바뀌었는지 (추가 → 잘못 넣음)
+  const legend = await page.textContent('#screen-result .legend');
+  ok('범례 용어가 행동으로 바뀌었다',
+    legend.includes('잘못 넣음') && legend.includes('빠뜨림') && !legend.includes('추가 입력'), legend);
+
+  await page.screenshot({ path: path.join(__dirname, 'shot-desktop-result2.png'), fullPage: false });
+
+  /* ---------- 순서 바뀜 · 나눠 쓰기 · 지난 시도 비교 ---------- */
+  const adv = await page.evaluate(() => {
+    Store.clearHistory();               // 앞선 검사들의 기록과 섞이지 않게 비운다
+    const ps = RevData.getPassage(1, 1, 4);
+
+    // 1차 시도 — 3절을 많이 빠뜨려 약한 절로 남긴다
+    const first = [ps.verses[0].text, ps.verses[1].text,
+      ps.verses[2].text.split(' ').slice(0, 5).join(' '), ps.verses[3].text].join(' ');
+    const r1 = RevScorer.score(ps, first, { hintsUsed: 0 });
+    Store.saveAttempt({ chapter: 1, startVerse: 1, endVerse: 4, reference: '계 1:1~4',
+      score: r1.score, accuracy: r1.accuracy, duration: 300, hintsUsed: 0,
+      correctCount: r1.counts.correct, similarCount: r1.counts.similar, wrongCount: r1.counts.wrong,
+      missingCount: r1.counts.missing, extraCount: r1.counts.extra,
+      totalTokens: r1.totalTokens, weakVerses: r1.weakVerses });
+
+    // 2차 시도 — 3절은 고치고, 어절 순서 바꿈 + 낱말 나눠 쓰기
+    const w = ps.verses[0].text.split(' ');
+    const t = w[5]; w[5] = w[6]; w[6] = t;
+    const second = ['1 ' + w.join(' '),
+      '2 ' + ps.verses[1].text.replace('증거하였느니라', '증거 하였느니라'),
+      '3 ' + ps.verses[2].text,
+      '4 ' + ps.verses[3].text].join(' ');
+    const r2 = RevScorer.score(ps, second, { hintsUsed: 0 });
+
+    const before = Store.getHistory();
+    RevApp.state.passage = ps;
+    RevApp.state.selected = { chapter: 1, startVerse: 1, endVerse: 4 };
+    RevApp.state.result = r2;
+    RevApp.state.lastUserText = second;
+    RevApp.state.lastDuration = 240;
+    RevApp.state.onlyWrong = false;
+    RevApp.state.compare = RevStats.compareWithPrevious(r2,
+      RevStats.previousAttempt(before, { chapter: 1, startVerse: 1, endVerse: 4 }));
+    RevApp.state.attemptNo = RevStats.attemptNumber(before, { chapter: 1, startVerse: 1, endVerse: 4 });
+    RevApp.go('result');
+    return { prev: r1.score, now: r2.score, attemptNo: RevApp.state.attemptNo };
+  });
+  await page.waitForSelector('.diff-flow');
+
+  // 순서 바뀜
+  ok('순서가 바뀐 어절이 표시된다', (await page.locator('#screen-result .tk-moved').count()) === 2,
+     await page.locator('#screen-result .tk-moved').count());
+  const movedSubs = await page.evaluate(() =>
+    [...document.querySelectorAll('#screen-result .tk-moved .tk-sub')].map(e => e.textContent).join('|'));
+  ok('본문 자리에는 "자리 바뀜", 쓴 자리에는 "여기 아님"',
+     movedSubs.includes('자리 바뀜') && movedSubs.includes('여기 아님'), movedSubs);
+  ok('잘못 놓은 자리의 말에는 취소선이 있다', await page.evaluate(() => {
+    const el = document.querySelector('#screen-result .tk-extra.tk-moved .tk-main');
+    return !!el && getComputedStyle(el).textDecorationLine.includes('line-through');
+  }));
+  ok('순서 바뀜이 오답 유형 요약에 나온다',
+     (await page.textContent('.issue-list')).includes('순서 바뀜'));
+
+  // 낱말을 나눠 쓴 경우
+  const spacingSubs = await page.evaluate(() =>
+    [...document.querySelectorAll('#screen-result .tk-spacing .tk-sub')].map(e => e.textContent).join('|'));
+  ok('나눠 쓴 어절에 "나눠 씀" 표시', spacingSubs.includes('나눠 씀'), spacingSubs);
+  ok('나눠 써도 점수가 크게 깎이지 않는다', adv.now >= 95, adv.now);
+
+  // 지난 시도 비교
+  ok('지난번과 비교 카드가 보인다', await page.isVisible('.compare-card'));
+  const cmpText = (await page.textContent('.compare-card')).replace(/\s+/g, ' ');
+  ok('지난 점수와 이번 점수가 함께 보인다',
+     cmpText.includes(adv.prev + '점') && cmpText.includes(adv.now + '점'), cmpText.slice(0, 90));
+  ok('점수가 올랐으면 + 로 표시된다', cmpText.includes('+'), cmpText.slice(0, 90));
+  ok('몇 번째 시도인지 보인다',
+     adv.attemptNo === 2 && cmpText.includes('2번째'), adv.attemptNo + ' / ' + cmpText.slice(0, 60));
+  ok('고쳐진 절을 짚어준다', cmpText.includes('고쳐진 절'), cmpText.slice(0, 160));
+  ok('점수가 올랐을 때 카드가 좋아진 상태로 보인다',
+     (await page.getAttribute('.compare-card', 'class')).includes('up'));
+
+  // 첫 시도에는 비교 카드가 없어야 한다
+  await page.evaluate(() => {
+    Store.clearHistory();
+    const ps = RevData.getPassage(2, 1, 3);
+    RevApp.state.passage = ps;
+    RevApp.state.result = RevScorer.score(ps, ps.fullText, { hintsUsed: 0 });
+    RevApp.state.lastUserText = ps.fullText;
+    RevApp.state.compare = null;
+    RevApp.state.attemptNo = 1;
+    RevApp.go('result');
+  });
+  await page.waitForSelector('.score-num');
+  ok('첫 시도에는 비교 카드가 없다', (await page.locator('.compare-card').count()) === 0);
+
+  await page.screenshot({ path: path.join(__dirname, 'shot-desktop-result3.png'), fullPage: false });
+
   /* ---------- 안드로이드(갤럭시) 음성 중복 입력 회귀 방지 ----------
      갤럭시 크롬은 onresult 마다 resultIndex 를 0 으로 주면서 지금까지의 결과를
      통째로 다시 보낸다. 그 동작을 그대로 흉내내는 가짜 인식기를 심어

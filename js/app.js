@@ -22,6 +22,9 @@
     lastSrs: null,       // 직전 채점의 복습 일정 결과
     lastPlan: null,      // 직전 채점의 누적 암송 상태
     voiceBase: '',       // 음성 인식 시작 시점의 입력창 내용
+    onlyWrong: false,    // 결과 화면에서 틀린 절만 볼지
+    compare: null,       // 같은 범위 직전 시도와의 비교
+    attemptNo: 0,        // 같은 범위를 몇 번째 암송하는지
     report: null,        // 취합 결과 (메모리에만 유지)
     reportFiles: [],
     installPrompt: null, // PWA 설치 프롬프트
@@ -404,7 +407,8 @@
         result = global.RevScorer.score(state.passage, text, {
           hintsUsed: state.hintLevel,
           hintPenalty: state.settings.hintPenalty,
-          strictPunctuation: state.settings.strictPunctuation
+          strictPunctuation: state.settings.strictPunctuation,
+          countVerseNumbers: state.settings.countVerseNumbers
         });
       } catch (e) {
         global.UI.setBusy(false);
@@ -413,8 +417,25 @@
       }
 
       state.result = result;
+      state.onlyWrong = false;   // 새 채점이면 전체 보기부터 시작
       state.lastUserText = text;
       state.lastDuration = state.timer.elapsed;
+
+      // 저장하기 "전"의 기록에서 같은 범위의 직전 시도를 찾아 견준다.
+      // (부분 범위 연습은 같은 범위가 아니므로 자연히 빠진다)
+      if (!state.passage.partial) {
+        var before = global.Store.getHistory();
+        var prevAttempt = global.RevStats.previousAttempt(before, {
+          chapter: result.chapter, startVerse: result.startVerse, endVerse: result.endVerse
+        });
+        state.compare = global.RevStats.compareWithPrevious(result, prevAttempt);
+        state.attemptNo = global.RevStats.attemptNumber(before, {
+          chapter: result.chapter, startVerse: result.startVerse, endVerse: result.endVerse
+        });
+      } else {
+        state.compare = null;
+        state.attemptNo = 0;
+      }
 
       var saved = global.Store.saveAttempt({
         chapter: result.chapter,
@@ -465,7 +486,10 @@
       userText: state.lastUserText,
       isFavorite: global.Store.isFavorite(id),
       srs: state.lastSrs,
-      planStatus: state.lastPlan
+      planStatus: state.lastPlan,
+      onlyWrong: state.onlyWrong,
+      compare: state.compare,
+      attemptNo: state.attemptNo
     }));
   }
 
@@ -694,6 +718,12 @@
 
     switch (action) {
       case 'go-select': go('select'); break;
+
+      case 'toggle-only-wrong':
+        state.onlyWrong = !state.onlyWrong;
+        renderResult();
+        break;
+
       case 'go-read': go('read'); break;
       case 'go-history': go('history'); break;
 

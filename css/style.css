@@ -337,18 +337,54 @@ kbd{
 }
 .diff-vno{ font-weight:800; color:var(--navy); font-size:13px; }
 .vscore{ font-weight:800; }
-.diff-flow{ font-size:16px; line-height:2.15; }
+.diff-flow{ font-size:16px; line-height:1.55; }
 
+/* 어절 한 칸: 윗줄은 정답 본문, 아랫줄(작은 글씨)은 내가 쓴 말 */
 .tk{
-  display:inline-block; border-radius:6px; padding:1px 5px; margin:0 2px 3px 0;
-  border:1px solid transparent; position:relative;
+  display:inline-flex; flex-direction:column; align-items:center;
+  border-radius:6px; padding:2px 6px; margin:0 3px 6px 0;
+  border:1px solid transparent; vertical-align:top;
 }
+.tk-main{ line-height:1.5; }
+.tk-sub{
+  font-size:11.5px; line-height:1.35; font-weight:700; opacity:.9;
+  margin-top:1px; max-width:16em; overflow-wrap:anywhere;
+}
+
 .tk-correct{ color:var(--ok); background:var(--ok-bg); border-color:#CDE7D8; }
+
 .tk-similar{ color:var(--warn); background:var(--warn-bg); border-color:#EBD6A2; cursor:pointer; }
-.tk-wrong  { color:var(--bad); background:var(--bad-bg); border-color:#F0C3CA; cursor:pointer; text-decoration:underline wavy var(--bad) 1px; text-underline-offset:4px; }
-.tk-missing{ color:var(--miss); background:var(--miss-bg); border-color:#D8DAE0; cursor:pointer; text-decoration:line-through; }
-.tk-extra  { color:var(--extra); background:var(--extra-bg); border-color:#C3D6EC; cursor:pointer; }
-.tk-mark{ font-size:10px; font-weight:800; margin-right:3px; opacity:.75; vertical-align:2px; }
+.tk-similar .tk-sub{ color:#7A5410; }
+
+.tk-wrong{
+  color:var(--bad); background:var(--bad-bg); border-color:#F0C3CA; cursor:pointer;
+}
+.tk-wrong .tk-main{ text-decoration:underline wavy var(--bad) 1px; text-underline-offset:3px; }
+.tk-wrong .tk-sub{ color:#8E1C2C; }
+
+/* 빠뜨린 말 — 본문에는 있는데 내가 안 쓴 것.
+   지워야 할 말이 아니므로 취소선을 쓰지 않고, 비워 둔 자리처럼 점선으로 보여준다. */
+.tk-missing{
+  color:var(--miss); background:var(--miss-bg);
+  border:1px dashed var(--line-strong); cursor:pointer;
+}
+.tk-missing .tk-main{ opacity:.7; }
+.tk-missing .tk-sub{ color:#5C626E; }
+
+/* 잘못 넣은 말 — 본문에 없는데 내가 쓴 것. 취소선으로 "빼면 된다"를 보여준다. */
+.tk-extra{
+  color:var(--extra); background:var(--extra-bg); border-color:#C3D6EC; cursor:pointer;
+}
+.tk-extra .tk-main{ text-decoration:line-through; text-decoration-thickness:2px; opacity:.8; }
+.tk-extra .tk-sub{ color:#14477F; }
+
+/* 띄어쓰기만 다른 경우는 감점이 거의 없으므로 눈에 덜 띄게 */
+.tk-spacing{ border-style:dotted; }
+
+@media (max-width: 860px){
+  .diff-flow{ font-size:15.5px; }
+  .tk-sub{ font-size:11px; max-width:11em; }
+}
 
 .vlist{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:7px; }
 .vrow{
@@ -618,3 +654,57 @@ details.fold > div{ padding:0 16px 16px; }
   body{ background:#fff; }
   .card{ box-shadow:none; break-inside:avoid; }
 }
+
+/* ---------- 오답 유형 요약 ---------- */
+.issue-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:9px; }
+.issue-row{
+  display:grid; grid-template-columns:auto auto 1fr; align-items:center; gap:10px;
+  font-size:13.5px; color:var(--text-2);
+}
+.issue-tag{
+  font-size:12px; font-weight:800; padding:4px 10px; border-radius:999px;
+  border:1px solid; white-space:nowrap;
+}
+.issue-num{ font-weight:800; color:var(--navy); font-size:13px; white-space:nowrap; }
+.issue-hint{ color:var(--text-3); font-size:12.5px; }
+.issue-spacing { color:var(--warn);  background:var(--warn-bg);  border-color:#EBD6A2; }
+.issue-particle{ color:var(--warn);  background:var(--warn-bg);  border-color:#EBD6A2; }
+.issue-typo    { color:var(--warn);  background:var(--warn-bg);  border-color:#EBD6A2; }
+.issue-missing { color:var(--miss);  background:var(--miss-bg);  border-color:#D8DAE0; }
+.issue-extra   { color:var(--extra); background:var(--extra-bg); border-color:#C3D6EC; }
+.issue-other   { color:var(--bad);   background:var(--bad-bg);   border-color:#F0C3CA; }
+
+@media (max-width: 560px){
+  .issue-row{ grid-template-columns:auto auto; row-gap:2px; }
+  .issue-hint{ grid-column:1 / -1; }
+}
+
+/* 순서만 바뀐 어절 — 말은 맞게 알고 있었으므로 '틀림'과 다르게 보여준다 */
+.lg-moved{ color:#5B3E9B; background:#EEE9F8; border-color:#D3C7ED; }
+.tk-moved{ border-color:#C6B8E6 !important; background:#F2EDFB !important; color:#4B3382 !important; }
+.tk-moved .tk-main{ text-decoration:none; opacity:1; }
+.tk-moved .tk-sub{ color:#5B3E9B; }
+.tk-extra.tk-moved .tk-main{ text-decoration:line-through; opacity:.75; }
+.issue-moved{ color:#5B3E9B; background:#EEE9F8; border-color:#D3C7ED; }
+
+/* ---------- 지난 시도와 비교 ---------- */
+.compare-card.up   { border-color:#BFE0CD; background:linear-gradient(180deg,#F4FBF7 0%,var(--surface) 60%); }
+.compare-card.down { border-color:#F0C3CA; background:linear-gradient(180deg,#FEF6F7 0%,var(--surface) 60%); }
+.compare-card.flat { border-color:var(--line-strong); }
+
+.cmp-score{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin:-2px 0 12px; }
+.cmp-old{ font-size:19px; font-weight:800; color:var(--text-3); }
+.cmp-arrow{ color:var(--text-3); font-size:17px; }
+.cmp-new{ font-size:30px; font-weight:800; font-variant-numeric:tabular-nums; }
+.cmp-delta{ font-size:13px; font-weight:800; padding:3px 10px; border-radius:999px; border:1px solid; }
+.cmp-up  { color:var(--ok);    background:var(--ok-bg);   border-color:#BFE0CD; }
+.cmp-down{ color:var(--bad);   background:var(--bad-bg);  border-color:#F0C3CA; }
+.cmp-flat{ color:var(--text-2); background:var(--bg-sunken); border-color:var(--line-strong); }
+
+.cmp-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:7px; font-size:13.5px; }
+.cmp-list li{ padding-left:16px; position:relative; color:var(--text-2); }
+.cmp-list li::before{ content:""; position:absolute; left:0; top:8px; width:7px; height:7px; border-radius:50%; }
+.cmp-good::before{ background:var(--ok); }
+.cmp-keep::before{ background:var(--warn); }
+.cmp-bad::before { background:var(--bad); }
+.cmp-list b{ color:var(--text); }

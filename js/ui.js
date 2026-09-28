@@ -379,11 +379,11 @@
         (r.hintsUsed ? ' · 힌트 ' + r.hintsUsed + '단계 사용' : ' · 힌트 없음') +
         (r.penalty ? ' (−' + r.penalty + '점)' : '') + '</p>' +
       '<div class="tally">' +
-        tally('t-correct', c.correct, '🟢 정확') +
-        tally('t-similar', c.similar, '🟡 유사') +
-        tally('t-wrong', c.wrong, '🔴 오답') +
-        tally('t-missing', c.missing, '⚪ 누락') +
-        tally('t-extra', c.extra, '🔵 추가') +
+        tally('t-correct', c.correct, '정확') +
+        tally('t-similar', c.similar, '비슷함') +
+        tally('t-wrong', c.wrong, '틀림') +
+        tally('t-missing', c.missing, '빠뜨림') +
+        tally('t-extra', c.extra, '잘못 넣음') +
       '</div>' +
       (ctx.srs ? '<p class="next-review">🔁 다음 복습 <b>' +
         escapeHtml(global.RevSRS.dueLabel(ctx.srs.card)) + '</b>' +
@@ -409,19 +409,94 @@
       '</div>' +
     '</div>';
 
-    /* 상세 비교 */
-    html += '<div class="card"><div class="card-head"><h2 class="card-title"><span class="lead">🔍</span>상세 비교</h2></div>' +
-      '<div class="legend">' +
-        '<span class="lg lg-correct">🟢 정확</span><span class="lg lg-similar">🟡 유사</span>' +
-        '<span class="lg lg-wrong">🔴 오답</span><span class="lg lg-missing">⚪ 누락</span><span class="lg lg-extra">🔵 추가 입력</span>' +
-      '</div>' +
-      '<p class="muted" style="margin:-6px 0 12px">색이 있는 어절을 누르면 정답과 입력을 비교해 보여줍니다.</p>';
+    /* 지난 시도와 견주기 — 나아지고 있다는 게 눈에 보여야 계속하게 된다 */
+    if (ctx.compare) {
+      var cp = ctx.compare;
+      var dir = cp.same ? 'flat' : (cp.better ? 'up' : 'down');
+      var sign = cp.scoreDiff > 0 ? '+' : '';
 
-    r.verses.forEach(function (v, idx) {
+      html += '<div class="card compare-card ' + dir + '"><div class="card-head">' +
+        '<h2 class="card-title"><span class="lead">📈</span>지난번과 비교' +
+        (ctx.attemptNo ? ' <span class="pill">' + ctx.attemptNo + '번째</span>' : '') + '</h2>' +
+        '<span class="muted">지난 시도 ' +
+        escapeHtml(global.RevStats.formatDate(cp.prevAt)) + '</span></div>' +
+
+        '<div class="cmp-score">' +
+          '<span class="cmp-old">' + cp.prevScore + '점</span>' +
+          '<span class="cmp-arrow" aria-hidden="true">→</span>' +
+          '<span class="cmp-new ' + scoreClass(ctx.result.score) + '">' + ctx.result.score + '점</span>' +
+          '<span class="cmp-delta cmp-' + dir + '">' +
+            (cp.same ? '그대로' : sign + cp.scoreDiff + '점') + '</span>' +
+        '</div>';
+
+      var lines = [];
+      if (cp.fixedVerses.length) {
+        lines.push('<li class="cmp-good"><b>고쳐진 절</b> ' +
+          cp.fixedVerses.map(function (v) { return v + '절'; }).join(', ') +
+          ' — 지난번에 약했는데 이번엔 괜찮았습니다.</li>');
+      }
+      if (cp.stillWeakVerses.length) {
+        lines.push('<li class="cmp-keep"><b>계속 약한 절</b> ' +
+          cp.stillWeakVerses.map(function (v) { return v + '절'; }).join(', ') +
+          ' — 두 번 다 80점 미만입니다. 여기부터 보세요.</li>');
+      }
+      if (cp.brokenVerses.length) {
+        lines.push('<li class="cmp-bad"><b>이번에 약해진 절</b> ' +
+          cp.brokenVerses.map(function (v) { return v + '절'; }).join(', ') + '</li>');
+      }
+      if (!lines.length) {
+        lines.push('<li class="cmp-good">약한 절 없이 두 번 다 잘 외웠습니다.</li>');
+      }
+      html += '<ul class="cmp-list">' + lines.join('') + '</ul></div>';
+    }
+
+    /* 어떤 식으로 틀렸는지 — 개수보다 유형이 다음 암송에 도움이 된다 */
+    if (r.issues && r.issues.length) {
+      html += '<div class="card"><div class="card-head">' +
+        '<h2 class="card-title"><span class="lead">🧭</span>이번에 자주 나온 실수</h2></div>' +
+        '<ul class="issue-list">' + r.issues.map(function (it) {
+          return '<li class="issue-row">' +
+            '<span class="issue-tag issue-' + it.key + '">' + escapeHtml(it.label) + '</span>' +
+            '<span class="issue-num">' + it.count + '곳</span>' +
+            '<span class="issue-hint">' + escapeHtml(it.hint) + '</span></li>';
+        }).join('') + '</ul></div>';
+    }
+
+    /* 상세 비교 */
+    var wrongVerses = r.verses.filter(function (v) { return v.score < 100; });
+    var onlyWrong = !!ctx.onlyWrong;
+    var shown = onlyWrong ? wrongVerses : r.verses;
+
+    html += '<div class="card"><div class="card-head"><h2 class="card-title"><span class="lead">🔍</span>상세 비교</h2>' +
+      (wrongVerses.length && wrongVerses.length < r.verses.length
+        ? '<button class="card-link" data-action="toggle-only-wrong" type="button" aria-pressed="' +
+          (onlyWrong ? 'true' : 'false') + '">' +
+          (onlyWrong ? '전체 ' + r.verses.length + '절 보기' : '틀린 ' + wrongVerses.length + '절만 보기') +
+          '</button>'
+        : '') +
+      '</div>' +
+      '<div class="legend">' +
+        '<span class="lg lg-correct">정확</span><span class="lg lg-similar">비슷함</span>' +
+        '<span class="lg lg-wrong">틀림</span><span class="lg lg-missing">빠뜨림</span>' +
+        '<span class="lg lg-extra">잘못 넣음</span>' +
+        '<span class="lg lg-moved">순서 바뀜</span>' +
+      '</div>' +
+      '<p class="muted" style="margin:-6px 0 12px">' +
+      '<b>윗줄은 정답 본문, 아랫줄 작은 글씨는 내가 쓴 말</b>입니다. ' +
+      '취소선이 그어진 것은 본문에 없는데 내가 넣은 말이니 빼면 됩니다. ' +
+      '어절을 누르면 더 자세히 볼 수 있습니다.</p>';
+
+    if (onlyWrong && !shown.length) {
+      html += '<p class="empty">틀린 절이 없습니다. 전부 정확하게 외웠습니다.</p>';
+    }
+
+    shown.forEach(function (v) {
+      var idx = r.verses.indexOf(v);
       html += '<div class="diff-verse">' +
         '<div class="diff-vhead"><span class="diff-vno">' + v.verse + '절</span>' +
         '<span class="vscore ' + scoreClass(v.score) + '">' + v.score + '점</span>' +
-        '<span>정확 ' + v.correct + ' · 유사 ' + v.similar + ' · 오답 ' + v.wrong + ' · 누락 ' + v.missing + ' · 추가 ' + v.extra + '</span>' +
+        '<span>정확 ' + v.correct + ' · 비슷함 ' + v.similar + ' · 틀림 ' + v.wrong +
+        ' · 빠뜨림 ' + v.missing + ' · 잘못 넣음 ' + v.extra + '</span>' +
         (v.score < 80 ? '<button class="btn btn-sm btn-ghost" data-action="practice-verse" data-c="' + r.chapter +
           '" data-v="' + v.verse + '" type="button">이 절만 다시</button>' : '') +
         '</div><div class="diff-flow">' +
@@ -457,35 +532,67 @@
            '<div class="tally-label">' + label + '</div></div>';
   }
 
-  var MARK = { correct: '', similar: '≈', wrong: '✕', missing: '⊘', extra: '+' };
-
+  /**
+   * 어절 하나를 그린다.
+   *
+   * 읽는 방향을 하나로 고정한다: 윗줄은 언제나 "정답 본문", 아랫줄은 "내가 쓴 말".
+   * 그래서 틀린 곳에서도 눈으로 본문을 이어 읽을 수 있고,
+   * 클릭하지 않아도 내가 무엇을 썼는지 바로 보인다.
+   *
+   *  · 빠뜨림  → 정답 어절을 흐리게, 아래에 "안 씀"
+   *  · 잘못 넣음 → 내가 쓴 말에 취소선, 아래에 "뺄 말"  (본문이 아님을 분명히)
+   */
   function tokenHtml(op, key) {
-    var text = (op.type === 'extra') ? op.user : op.answer;
-    var cls = 'tk tk-' + op.type;
+    var isExtra = (op.type === 'extra');
+    var main = isExtra ? (op.user || '') : (op.answer || '');
+    var cls = 'tk tk-' + op.type + (op.spacing ? ' tk-spacing' : '') + (op.moved ? ' tk-moved' : '');
     var attrs = '';
     if (op.type !== 'correct') {
       attrs = ' data-action="explain" data-key="' + escapeHtml(key) + '" role="button" tabindex="0"' +
         ' aria-label="' + escapeHtml(labelOf(op)) + '"';
     }
-    var mark = MARK[op.type] ? '<span class="tk-mark" aria-hidden="true">' + MARK[op.type] + '</span>' : '';
-    return '<span class="' + cls + '"' + attrs + '>' + mark + escapeHtml(text) + '</span>';
+
+    var sub = subLabel(op);
+    var subHtml = sub ? '<span class="tk-sub">' + escapeHtml(sub) + '</span>' : '';
+
+    return '<span class="' + cls + '"' + attrs + '>' +
+      '<span class="tk-main">' + escapeHtml(main) + '</span>' + subHtml + '</span>';
+  }
+
+  /** 어절 아래에 붙는 작은 글씨 — 내가 실제로 쓴 말, 또는 무엇이 잘못됐는지. */
+  function subLabel(op) {
+    if (op.type === 'correct') return '';
+    if (op.moved) return (op.type === 'extra') ? '여기 아님' : '자리 바뀜';
+    if (op.type === 'missing') return '안 씀';
+    if (op.type === 'extra') return '뺄 말';
+    if (op.spacing) {
+      // 붙여 썼는지 나눠 썼는지를 구분해서 알려준다.
+      var aw = (op.answerSpan || op.answer || '').split(' ').filter(Boolean).length;
+      var uw = (op.userSpan || op.user || '').split(' ').filter(Boolean).length;
+      if (uw > aw) return '나눠 씀';
+      if (uw < aw) return '붙여 씀';
+      return '띄어쓰기';
+    }
+    var typed = op.userSpan || op.user || '';
+    return typed ? typed : '안 씀';
   }
 
   function labelOf(op) {
     if (op.type === 'correct') return '정확: ' + op.answer;
-    if (op.type === 'similar') return '유사: 정답 ' + op.answer + ', 입력 ' + (op.user || '없음');
-    if (op.type === 'wrong') return '오답: 정답 ' + op.answer + ', 입력 ' + (op.user || '없음');
-    if (op.type === 'missing') return '누락: ' + op.answer;
-    return '추가 입력: ' + op.user;
+    if (op.type === 'similar') return '비슷함: 정답 ' + op.answer + ', 내가 쓴 말 ' + (op.user || '없음');
+    if (op.type === 'wrong') return '틀림: 정답 ' + op.answer + ', 내가 쓴 말 ' + (op.user || '없음');
+    if (op.moved) return '순서 바뀜: ' + (op.answer || op.user);
+    if (op.type === 'missing') return '빠뜨림: ' + op.answer + ' — 쓰지 않았습니다';
+    return '잘못 넣음: ' + op.user + ' — 본문에 없는 말입니다';
   }
 
-  var TYPE_KO = { correct: '정확', similar: '유사', wrong: '오답', missing: '누락', extra: '추가 입력' };
+  var TYPE_KO = { correct: '정확', similar: '비슷함', wrong: '틀림', missing: '빠뜨림', extra: '잘못 넣음' };
 
   function explainHtml(op) {
     var rows = '';
     rows += '<dt>구분</dt><dd>' + TYPE_KO[op.type] + '</dd>';
-    rows += '<dt>정답</dt><dd>' + (op.answerSpan ? escapeHtml(op.answerSpan) : (op.answer ? escapeHtml(op.answer) : '<span class="muted">없음</span>')) + '</dd>';
-    rows += '<dt>입력</dt><dd>' + (op.userSpan ? escapeHtml(op.userSpan) : (op.user ? escapeHtml(op.user) : '<span class="muted">없음</span>')) + '</dd>';
+    rows += '<dt>정답 본문</dt><dd>' + (op.answerSpan ? escapeHtml(op.answerSpan) : (op.answer ? escapeHtml(op.answer) : '<span class="muted">본문에 없는 말입니다</span>')) + '</dd>';
+    rows += '<dt>내가 쓴 말</dt><dd>' + (op.userSpan ? escapeHtml(op.userSpan) : (op.user ? escapeHtml(op.user) : '<span class="muted">쓰지 않았습니다</span>')) + '</dd>';
     if (op.similarity > 0 && op.type !== 'correct') {
       rows += '<dt>유사도</dt><dd>' + Math.round(op.similarity * 100) + '%</dd>';
     }
@@ -494,8 +601,8 @@
   }
 
   function defaultIssue(op) {
-    if (op.type === 'missing') return '이 어절이 입력에서 빠졌습니다.';
-    if (op.type === 'extra') return '정답에 없는 어절을 입력했습니다.';
+    if (op.type === 'missing') return '본문에 있는 말인데 쓰지 않았습니다.';
+    if (op.type === 'extra') return '본문에 없는 말을 넣었습니다. 이 말은 빼면 됩니다.';
     return '';
   }
 
@@ -750,6 +857,7 @@
     html += '<div class="card"><div class="card-head"><h2 class="card-title"><span class="lead">⚙️</span>채점 · 학습</h2></div>' +
       row('hintPenalty', '힌트 사용 시 감점', '힌트를 한 단계 볼 때마다 3점씩, 최대 10점까지 감점합니다.') +
       row('strictPunctuation', '문장부호까지 엄격하게 채점', '끄면 쉼표·마침표 차이는 오답으로 보지 않습니다. (기본: 꺼짐)') +
+      row('countVerseNumbers', '절 번호도 본문처럼 채점', '꺼두면 "1 예수 그리스도의 … 2 요한은 …" 처럼 절 번호를 적어도 감점되지 않습니다. (기본: 꺼짐)') +
       row('srsEnabled', '간격 반복 복습 사용', '점수에 따라 다음 복습일을 자동 계산해 홈 화면에 띄웁니다. (SM-2)') +
       row('voiceInput', '음성 암송 버튼 표시', '마이크로 암송하면 인식된 문장이 입력창에 들어갑니다. https 또는 localhost 필요.') +
       row('showTimer', '암송 화면에 타이머 표시', '끄더라도 소요 시간은 기록에 남습니다.') +

@@ -377,6 +377,233 @@ check('완주한 계획은 진행 목록에서 빠진다', RevPlan.active(5).fil
 RevPlan.remove(1, 1);
 check('계획을 삭제할 수 있다', RevPlan.get(1, 1) === null);
 
+group('낱말을 나눠 쓴 경우도 띄어쓰기로 본다');
+const splitP = RevData.getPassage(1, 2, 2);
+const splitText = splitP.fullText.replace('증거하였느니라', '증거 하였느니라');
+
+check('한 낱말을 둘로 나눠 쓰면 띄어쓰기로 잡힌다',
+  tally(splitP, splitText).ops.some(function (o) { return o.spacing; }));
+check('나눠 써도 "잘못 넣음"으로 세지 않는다', tally(splitP, splitText).counts.extra === 0,
+  tally(splitP, splitText).counts.extra);
+check('나눠 쓴 경우 점수가 95점 이상 유지된다', tally(splitP, splitText).score >= 95,
+  tally(splitP, splitText).score);
+
+/* 회귀의 핵심 — 같은 블록에 다른 실수가 섞여 있어도 띄어쓰기로 잡아야 한다.
+   예전에는 뒤에 군말이 붙으면 블록 전체 검사가 실패해 '잘못 넣음 + 비슷함'으로 두 번 깎였다. */
+const splitMessy = splitText + ' 그리고';
+check('뒤에 군말이 붙어도 띄어쓰기로 잡힌다',
+  tally(splitP, splitMessy).ops.some(function (o) { return o.spacing; }));
+check('군말이 붙어도 95점 이상', tally(splitP, splitMessy).score >= 95,
+  tally(splitP, splitMessy).score);
+
+const joinP = RevData.getPassage(1, 1, 1);
+const joinText = joinP.fullText.replace('될 일을', '될일을');
+check('붙여 쓴 경우도 그대로 띄어쓰기 (기존 동작 유지)',
+  tally(joinP, joinText).ops.some(function (o) { return o.spacing; }));
+check('붙여 쓴 경우 점수 유지', tally(joinP, joinText).score >= 95, tally(joinP, joinText).score);
+
+check('띄어쓰기 방향이 span 에 남는다', (function () {
+  var sp = tally(splitP, splitText).ops.filter(function (o) { return o.spacing; })[0];
+  return sp.answerSpan === '증거하였느니라' && sp.userSpan === '증거 하였느니라';
+})());
+
+check('멀쩡한 입력에는 띄어쓰기 표시가 생기지 않는다',
+  tally(joinP, joinP.fullText).ops.every(function (o) { return !o.spacing; }));
+
+group('어절 순서가 바뀐 경우');
+const moveP = RevData.getPassage(1, 1, 1);
+const moveWords = moveP.fullText.split(' ');
+const swappedWords = moveWords.slice();
+(function () { var t = swappedWords[5]; swappedWords[5] = swappedWords[6]; swappedWords[6] = t; })();
+const swappedText = swappedWords.join(' ');
+
+check('이웃한 두 어절을 바꿔 쓰면 "순서 바뀜"으로 잡힌다',
+  tally(moveP, swappedText).ops.some(function (o) { return o.moved; }));
+check('순서 바뀜은 본문 자리와 쓴 자리 두 곳에 표시된다',
+  tally(moveP, swappedText).ops.filter(function (o) { return o.moved; }).length === 2);
+
+/* 예전에는 빠뜨림(0점) + 잘못 넣음(-0.2) 으로 한 실수가 두 번 깎였다. */
+check('순서만 바꾼 경우 점수가 95점 이상', tally(moveP, swappedText).score >= 95,
+  tally(moveP, swappedText).score);
+check('순서 바뀜은 빠뜨림으로 세지 않는다', tally(moveP, swappedText).counts.missing === 0,
+  tally(moveP, swappedText).counts.missing);
+
+const farWords = moveWords.slice();
+const taken = farWords.splice(2, 1)[0];
+farWords.splice(7, 0, taken);
+check('멀리 옮겨 쓴 경우도 잡힌다',
+  tally(moveP, farWords.join(' ')).ops.some(function (o) { return o.moved; }));
+
+check('아주 멀리 떨어지면 순서 바뀜으로 보지 않는다', (function () {
+  var long = RevData.getPassage(1, 1, 3);
+  var w = long.fullText.split(' ');
+  var t = w.splice(1, 1)[0];
+  w.splice(w.length - 1, 0, t);      // 문서 끝까지 옮김
+  return tally(long, w.join(' ')).ops.every(function (o) { return !o.moved; });
+})());
+
+check('순서 바뀜이 오답 유형 요약에 잡힌다',
+  RevScorer.issueSummary(tally(moveP, swappedText).ops)
+    .some(function (k) { return k.key === 'moved'; }));
+
+check('진짜 빠뜨림은 순서 바뀜으로 오인하지 않는다', (function () {
+  var short = moveWords.slice(0, -3).join(' ');
+  var r = tally(moveP, short);
+  return r.counts.missing === 3 && r.ops.every(function (o) { return !o.moved; });
+})());
+
+check('진짜 군말 추가도 순서 바뀜으로 오인하지 않는다', (function () {
+  var r = tally(moveP, moveP.fullText + ' 아멘');
+  return r.counts.extra === 1 && r.ops.every(function (o) { return !o.moved; });
+})());
+
+check('완전 일치는 여전히 100점', tally(moveP, moveP.fullText).score === 100);
+
+group('지난 시도와 비교');
+Store.clearHistory();
+const cmpRange = { chapter: 5, startVerse: 1, endVerse: 4 };
+
+check('기록이 없으면 비교할 것이 없다',
+  RevStats.previousAttempt(Store.getHistory(), cmpRange) === null);
+check('첫 시도는 1번째', RevStats.attemptNumber(Store.getHistory(), cmpRange) === 1);
+
+Store.saveAttempt({ chapter: 5, startVerse: 1, endVerse: 4, reference: '계 5:1~4',
+  score: 72, accuracy: 0.72, duration: 300, weakVerses: [2, 3] });
+
+check('같은 범위의 직전 기록을 찾는다',
+  (RevStats.previousAttempt(Store.getHistory(), cmpRange) || {}).score === 72);
+check('두 번째 시도는 2번째', RevStats.attemptNumber(Store.getHistory(), cmpRange) === 2);
+
+const cmp = RevStats.compareWithPrevious(
+  { score: 88, weakVerses: [3] },
+  RevStats.previousAttempt(Store.getHistory(), cmpRange));
+check('점수 차이를 계산한다', cmp.scoreDiff === 16, cmp.scoreDiff);
+check('나아졌음을 표시한다', cmp.better === true && cmp.same === false);
+check('고쳐진 절을 찾는다', cmp.fixedVerses.join(',') === '2', cmp.fixedVerses.join(','));
+check('계속 약한 절을 찾는다', cmp.stillWeakVerses.join(',') === '3', cmp.stillWeakVerses.join(','));
+check('새로 약해진 절이 없다', cmp.brokenVerses.length === 0);
+
+const worse = RevStats.compareWithPrevious(
+  { score: 60, weakVerses: [1, 3] },
+  RevStats.previousAttempt(Store.getHistory(), cmpRange));
+check('점수가 내려간 것도 표시한다', worse.better === false && worse.scoreDiff === -12, worse.scoreDiff);
+check('새로 약해진 절을 찾는다', worse.brokenVerses.join(',') === '1', worse.brokenVerses.join(','));
+
+const same = RevStats.compareWithPrevious(
+  { score: 72, weakVerses: [2, 3] },
+  RevStats.previousAttempt(Store.getHistory(), cmpRange));
+check('점수가 같으면 same', same.same === true && same.better === false);
+
+check('다른 범위의 기록은 비교 대상이 아니다',
+  RevStats.previousAttempt(Store.getHistory(), { chapter: 5, startVerse: 1, endVerse: 8 }) === null);
+
+Store.saveAttempt({ chapter: 5, startVerse: 1, endVerse: 4, reference: '계 5:1~4',
+  score: 95, accuracy: 0.95, duration: 200, partial: true, weakVerses: [] });
+check('오답만 연습(부분 범위) 기록은 비교에서 제외된다',
+  (RevStats.previousAttempt(Store.getHistory(), cmpRange) || {}).score === 72);
+
+check('자기 자신은 비교 대상에서 뺀다', (function () {
+  var saved = Store.saveAttempt({ chapter: 5, startVerse: 1, endVerse: 4, reference: '계 5:1~4',
+    score: 99, accuracy: 0.99, duration: 150, weakVerses: [] });
+  return (RevStats.previousAttempt(Store.getHistory(), cmpRange, saved.id) || {}).score === 72;
+})());
+
+check('비교할 기록이 없으면 null', RevStats.compareWithPrevious({ score: 90, weakVerses: [] }, null) === null);
+Store.clearHistory();
+
+group('절 번호를 적어도 감점되지 않는다');
+
+/* 전제 확인 — 개역한글 요한계시록 본문에는 아라비아 숫자가 한 글자도 없다.
+   (수는 모두 '십사만 사천'처럼 한글로 적혀 있다)
+   이 전제가 깨지면 숫자 어절을 버리는 규칙이 본문을 갉아먹으므로 반드시 지킨다. */
+check('본문에 아라비아 숫자가 전혀 없다', (function () {
+  var chapters = RevData.getChapters();
+  for (var i = 0; i < chapters.length; i++) {
+    var c = chapters[i], n = RevData.getVerseCount(c);
+    for (var v = 1; v <= n; v++) {
+      if (/[0-9０-９]/.test(RevData.getVerse(c, v) || '')) return false;
+    }
+  }
+  return true;
+})());
+
+check('숫자만 있는 어절을 절 번호로 본다', RevDiff.isVerseNumber('1') === true);
+check('마침표가 붙어도 절 번호', RevDiff.isVerseNumber('1.') === true);
+check('괄호가 붙어도 절 번호', RevDiff.isVerseNumber('(12)') === true);
+check('대괄호가 붙어도 절 번호', RevDiff.isVerseNumber('[3]') === true);
+check('"1절" 도 절 번호', RevDiff.isVerseNumber('1절') === true);
+check('"제1절" 도 절 번호', RevDiff.isVerseNumber('제1절') === true);
+check('"20:1" 도 절 번호', RevDiff.isVerseNumber('20:1') === true);
+check('전각 숫자도 절 번호', RevDiff.isVerseNumber('１') === true);
+check('본문 어절은 절 번호가 아니다', RevDiff.isVerseNumber('예수') === false);
+check('숫자가 섞인 낱말은 절 번호가 아니다', RevDiff.isVerseNumber('1장의') === false);
+check('빈 값은 절 번호가 아니다', RevDiff.isVerseNumber('') === false);
+
+const numPassage = RevData.getPassage(1, 1, 3);
+const numbered = '1 ' + numPassage.verses[0].text +
+                 ' 2 ' + numPassage.verses[1].text +
+                 ' 3 ' + numPassage.verses[2].text;
+
+check('절 번호를 붙여 정확히 쓰면 100점', tally(numPassage, numbered).score === 100,
+  tally(numPassage, numbered).score);
+check('절 번호는 "잘못 넣음"으로 세지 않는다', tally(numPassage, numbered).counts.extra === 0,
+  tally(numPassage, numbered).counts.extra);
+check('절 번호가 있어도 없는 것과 점수가 같다',
+  tally(numPassage, numbered).score === tally(numPassage, numPassage.fullText).score);
+check('절 번호는 토큰 수에도 들어가지 않는다',
+  tally(numPassage, numbered).totalTokens === tally(numPassage, numPassage.fullText).totalTokens);
+
+check('설정을 켜면 절 번호도 채점한다', (function () {
+  var on = tally(numPassage, numbered, { countVerseNumbers: true });
+  return on.counts.extra === 3 && on.score < 100;
+})());
+
+check('절 번호만 적고 본문을 안 쓰면 0점', tally(numPassage, '1 2 3').score === 0,
+  tally(numPassage, '1 2 3').score);
+
+check('토큰화에서 절 번호가 빠진다',
+  RevDiff.tokenize('1 예수 그리스도의', false).length === 2);
+check('keepVerseNumbers 를 주면 절 번호도 남는다',
+  RevDiff.tokenize('1 예수 그리스도의', false, true).length === 3);
+
+group('오답 유형 요약');
+check('정확만 있으면 요약이 비어 있다',
+  RevScorer.issueSummary(tally(numPassage, numPassage.fullText).ops).length === 0);
+
+check('빠뜨린 어절은 "빠뜨림"으로 분류', (function () {
+  var short = numPassage.verses[0].text.split(' ').slice(0, -2).join(' ');
+  var kinds = RevScorer.issueSummary(tally(RevData.getPassage(1, 1, 1), short).ops);
+  return kinds.some(function (k) { return k.key === 'missing' && k.count === 2; });
+})());
+
+check('본문에 없는 말은 "잘못 넣음"으로 분류', (function () {
+  var one = RevData.getPassage(1, 1, 1);
+  var kinds = RevScorer.issueSummary(tally(one, one.fullText + ' 아멘 아멘').ops);
+  return kinds.some(function (k) { return k.key === 'extra' && k.count === 2; });
+})());
+
+check('띄어쓰기 차이는 "띄어쓰기"로 분류', (function () {
+  var one = RevData.getPassage(1, 1, 1);
+  var joined = one.fullText.replace('될 일을', '될일을');
+  var kinds = RevScorer.issueSummary(tally(one, joined).ops);
+  return kinds.some(function (k) { return k.key === 'spacing'; });
+})());
+
+check('요약은 많이 나온 유형이 앞에 온다', (function () {
+  var one = RevData.getPassage(1, 1, 1);
+  var text = one.fullText.split(' ').slice(0, -3).join(' ') + ' 아멘';
+  var kinds = RevScorer.issueSummary(tally(one, text).ops);
+  for (var i = 1; i < kinds.length; i++) {
+    if (kinds[i - 1].count < kinds[i].count) return false;
+  }
+  return kinds.length > 0;
+})());
+
+check('채점 결과에 요약이 함께 담긴다', Array.isArray(tally(numPassage, numbered).issues));
+check('유형마다 설명 문구가 있다', RevScorer.ISSUE_KINDS.every(function (k) {
+  return !!k.label && !!k.hint;
+}));
+
 group('음성 암송 래퍼');
 check('Node 환경에서는 미지원으로 판정', RevVoice.isSupported() === false);
 check('미지원 사유 문구를 돌려준다', /지원하지 않습니다/.test(RevVoice.unavailableReason() || ''),
