@@ -17,7 +17,8 @@
     data:      'revelation_custom_data',
     srs:       'revelation_srs',
     plans:     'revelation_plans',
-    puzzle:    'revelation_puzzle'
+    puzzle:    'revelation_puzzle',
+    draft:     'revelation_draft'
   };
 
   var HISTORY_LIMIT = 500;
@@ -208,6 +209,28 @@
   function savePuzzle(obj) { return writeJSON(KEY.puzzle, obj || {}); }
   function clearPuzzle() { removeKey(KEY.puzzle); }
 
+  /* ---------- 쓰던 암송 (임시 저장) ----------
+     긴 범위를 쓰다가 새로고침되거나 휴대폰이 탭을 닫아버려도 이어 쓸 수 있게 한다.
+     채점하면 지운다. 백업에는 넣지 않는다. */
+
+  function getDraft() {
+    var d = readJSON(KEY.draft, null);
+    if (!d || typeof d !== 'object' || typeof d.text !== 'string' || !d.text.trim()) return null;
+    if (!(Number(d.chapter) > 0 && Number(d.startVerse) > 0 && Number(d.endVerse) > 0)) return null;
+    return d;
+  }
+  function saveDraft(d) {
+    if (!d || typeof d.text !== 'string' || !d.text.trim()) { removeKey(KEY.draft); return true; }
+    return writeJSON(KEY.draft, {
+      chapter: Number(d.chapter), startVerse: Number(d.startVerse), endVerse: Number(d.endVerse),
+      text: d.text.slice(0, 20000),
+      hintLevel: Number(d.hintLevel) || 0,
+      elapsed: Math.max(0, Math.round(Number(d.elapsed) || 0)),
+      savedAt: new Date().toISOString()
+    });
+  }
+  function clearDraft() { removeKey(KEY.draft); }
+
   /* ---------- 사용자 본문 데이터 ---------- */
 
   function getCustomData() { return readJSON(KEY.data, null); }
@@ -265,6 +288,9 @@
     getPuzzle: getPuzzle,
     savePuzzle: savePuzzle,
     clearPuzzle: clearPuzzle,
+    getDraft: getDraft,
+    saveDraft: saveDraft,
+    clearDraft: clearDraft,
     getCustomData: getCustomData,
     saveCustomData: saveCustomData,
     clearCustomData: clearCustomData,

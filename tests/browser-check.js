@@ -690,6 +690,95 @@ const LAUNCH = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PA
 
   await page.screenshot({ path: path.join(__dirname, 'shot-desktop-puzzle.png'), fullPage: false });
 
+  /* ---------- 퍼즐 직접 입력: Enter 로 이동 ---------- */
+  await page.click('[data-action="pz-mode"][data-mode="type"]');
+  await page.waitForTimeout(180);
+  await page.locator('#screen-puzzle .pz-input').first().focus();
+  await page.keyboard.press('Enter');
+  ok('Enter 를 누르면 다음 빈칸으로 넘어간다', await page.evaluate(() => {
+    const boxes = [...document.querySelectorAll('#screen-puzzle .pz-input')];
+    return boxes.indexOf(document.activeElement) === 1;
+  }));
+  await page.evaluate(() => {
+    const p = RevApp.state.puzzle;
+    document.querySelectorAll('#screen-puzzle [data-role="pz-type"]').forEach(el => {
+      el.value = p.data.words[Number(el.getAttribute('data-i'))];
+    });
+  });
+  await page.locator('#screen-puzzle .pz-input').last().focus();
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('#screen-puzzle .pz-result');
+  ok('마지막 칸에서 Enter 를 누르면 채점된다', (await page.textContent('.pz-result')).includes('100점'));
+  await page.click('[data-action="pz-mode"][data-mode="pick"]');
+  await page.waitForTimeout(120);
+
+  /* ---------- 채점 결과의 약한 절 → 퍼즐 ---------- */
+  await page.evaluate(() => {
+    const ps = RevData.getPassage(3, 1, 3);
+    const typed = ps.verses[0].text + ' ' + ps.verses[1].text.split(' ').slice(0, 3).join(' ') + ' ' + ps.verses[2].text;
+    RevApp.state.passage = ps;
+    RevApp.state.result = RevScorer.score(ps, typed, { hintsUsed: 0 });
+    RevApp.state.lastUserText = typed;
+    RevApp.state.compare = null;
+    RevApp.go('result');
+  });
+  await page.waitForSelector('#screen-result [data-action="pz-open"]');
+  ok('약한 절에 퍼즐로 연습 버튼이 있다', await page.isVisible('#screen-result [data-action="pz-open"]'));
+  await page.click('#screen-result [data-action="pz-open"]');
+  await page.waitForSelector('#screen-puzzle .pz-text');
+  ok('누르면 그 절의 퍼즐이 열린다',
+     (await page.textContent('#screen-puzzle .pz-board .card-title')).includes('3장 2절'),
+     await page.textContent('#screen-puzzle .pz-board .card-title'));
+
+  /* ---------- 퍼즐 진도 초기화 ---------- */
+  page.once('dialog', d => d.accept());
+  await page.click('.side-nav [data-nav="settings"]');
+  await page.waitForSelector('[data-action="pz-reset"]');
+  await page.click('[data-action="pz-reset"]');
+  await page.waitForTimeout(200);
+  ok('설정에서 퍼즐 진도를 초기화할 수 있다',
+     (await page.evaluate(() => Object.keys(Store.getPuzzle().best || {}).length)) === 0);
+
+  /* ---------- 쓰던 암송 이어 쓰기 ---------- */
+  await page.evaluate(() => { Store.clearDraft(); });
+  await page.click('.side-nav [data-nav="select"]');
+  await page.waitForSelector('#selChapter');
+  await page.selectOption('#selChapter', '20');
+  await page.selectOption('#selStart', '1');
+  await page.selectOption('#selEnd', '3');
+  await page.click('[data-action="start"]');
+  await page.waitForSelector('#answerInput');
+  await page.fill('#answerInput', '또 내가 보매 천사가 무저갱 열쇠와');
+  await page.waitForTimeout(1000);          // 잠깐 멈추면 저장된다
+  ok('쓰는 중에 자동으로 저장된다',
+     ((await page.evaluate(() => Store.getDraft())) || {}).text === '또 내가 보매 천사가 무저갱 열쇠와');
+
+  await page.reload();                      // 실수로 새로고침
+  await page.waitForSelector('.hero-ref');
+  ok('새로고침 후 홈에 이어 쓰기 안내가 뜬다', await page.isVisible('[data-action="draft-resume"]'));
+  ok('어느 범위인지 알려준다', (await page.textContent('#screen-home')).includes('계 20:1~3'));
+  await page.click('[data-action="draft-resume"]');
+  await page.waitForSelector('#answerInput');
+  ok('쓰던 내용이 그대로 돌아온다',
+     (await page.inputValue('#answerInput')) === '또 내가 보매 천사가 무저갱 열쇠와');
+  ok('같은 범위로 열린다', (await page.textContent('.mem-ref')).includes('요한계시록 20:1-3'));
+  ok('시간이 0부터가 아니라 이어서 흐른다',
+     (await page.evaluate(() => RevApp.state.timer.elapsed)) >= 1);
+
+  await page.click('[data-action="submit"]');
+  await page.waitForSelector('.score-num');
+  ok('채점하면 임시 저장이 지워진다', (await page.evaluate(() => Store.getDraft())) === null);
+
+  // 그만두면 남기지 않는다
+  await page.click('[data-action="retry"]');
+  await page.waitForSelector('#answerInput');
+  await page.fill('#answerInput', '버릴 내용');
+  await page.waitForTimeout(900);
+  await page.click('[data-action="give-up"]');
+  await page.waitForTimeout(150);
+  ok('그만두기를 누르면 임시 저장을 남기지 않는다', (await page.evaluate(() => Store.getDraft())) === null);
+  await page.evaluate(() => Store.clearHistory());
+
   /* ---------- 안드로이드(갤럭시) 음성 중복 입력 회귀 방지 ----------
      갤럭시 크롬은 onresult 마다 resultIndex 를 0 으로 주면서 지금까지의 결과를
      통째로 다시 보낸다. 그 동작을 그대로 흉내내는 가짜 인식기를 심어

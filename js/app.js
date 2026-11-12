@@ -98,7 +98,21 @@
     var proto = global.location.protocol;
     if ((proto === 'https:' || global.location.hostname === 'localhost') &&
         global.navigator && global.navigator.serviceWorker) {
-      global.navigator.serviceWorker.register('sw.js').catch(function () { /* 등록 실패는 무시 */ });
+      var sw = global.navigator.serviceWorker;
+      var hadController = !!sw.controller;
+      sw.register('sw.js').then(function (reg) {
+        // 앱을 오래 켜 둔 경우를 위해, 화면으로 돌아올 때마다 새 버전이 있는지 확인한다.
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState === 'visible' && reg && reg.update) {
+            reg.update().catch(function () { /* 오프라인 */ });
+          }
+        });
+      }).catch(function () { /* 등록 실패는 무시 */ });
+      sw.addEventListener('controllerchange', function () {
+        // 처음 설치될 때는 알릴 필요가 없다. 교체됐을 때만 알린다.
+        if (hadController) global.UI.toast('새 버전이 준비됐습니다. 새로고침하면 적용됩니다.');
+        hadController = true;
+      });
     }
     global.addEventListener('beforeinstallprompt', function (e) {
       e.preventDefault();
@@ -163,6 +177,8 @@
   }
 
   function go(name) {
+    // 쓰던 중에 다른 화면으로 나가면 내용을 남겨 둔다. (채점하러 가는 길은 제외)
+    if (state.screen === 'memorize' && name !== 'memorize' && name !== 'result') saveDraftNow();
     if (name !== 'memorize') { stopTimer(); global.RevVoice.stop(); }
     updateStreakBadge();
 
@@ -191,7 +207,13 @@
       chapter: passage.chapter, startVerse: passage.startVerse, endVerse: passage.endVerse
     } : null;
 
+    var draft = global.Store.getDraft();
     paint('home', global.UI.renderHome({
+      draft: draft ? {
+        reference: global.RevData.shortRef(draft.chapter, draft.startVerse, draft.endVerse),
+        chars: draft.text.replace(/\s/g, '').length,
+        savedAt: draft.savedAt
+      } : null,
       pick: {
         reference: passage ? passage.reference : '본문 없음',
         reason: pick.reason,
@@ -290,6 +312,7 @@
     state.draft = '';
     state.hintLevel = 0;
     state.result = null;
+    global.Store.clearDraft();
     renderMemorize();
     startTimer();
     if (state.settings.autoFocus) {
@@ -324,10 +347,11 @@
 
   /* ---------- 타이머 ---------- */
 
-  function startTimer() {
+  function startTimer(alreadyElapsed) {
     stopTimer();
-    state.timer.startedAt = Date.now();
-    state.timer.elapsed = 0;
+    var base = Math.max(0, Number(alreadyElapsed) || 0);
+    state.timer.startedAt = Date.now() - base * 1000;
+    state.timer.elapsed = base;
     state.timer.running = true;
     state.timer.id = global.setInterval(function () {
       state.timer.elapsed = Math.floor((Date.now() - state.timer.startedAt) / 1000);
@@ -341,6 +365,47 @@
       state.timer.elapsed = Math.floor((Date.now() - state.timer.startedAt) / 1000);
     }
     state.timer.running = false;
+  }
+
+  /* ---------- 쓰던 내용 임시 저장 ---------- */
+
+  var draftTimer = null;
+
+  /** 지금 쓰고 있는 내용을 저장한다. (부분 범위 연습은 저장하지 않는다) */
+  function saveDraftNow() {
+    if (draftTimer) { global.clearTimeout(draftTimer); draftTimer = null; }
+    if (state.screen !== 'memorize' || !state.passage || state.passage.partial) return;
+    var elapsed = state.timer.running && state.timer.startedAt
+      ? Math.floor((Date.now() - state.timer.startedAt) / 1000) : state.timer.elapsed;
+    global.Store.saveDraft({
+      chapter: state.passage.chapter, startVerse: state.passage.startVerse, endVerse: state.passage.endVerse,
+      text: state.draft || '', hintLevel: state.hintLevel, elapsed: elapsed
+    });
+  }
+  /** 글자를 칠 때마다 쓰지 않고, 잠깐 멈췄을 때 한 번 저장한다. */
+  function scheduleDraftSave() {
+    if (draftTimer) return;
+    draftTimer = global.setTimeout(function () { draftTimer = null; saveDraftNow(); }, 700);
+  }
+
+  /** 저장해 둔 내용으로 암송 화면을 다시 연다. */
+  function resumeDraft() {
+    var d = global.Store.getDraft();
+    if (!d) return false;
+    var passage = global.RevData.getPassage(d.chapter, d.startVerse, d.endVerse);
+    if (!passage) { global.Store.clearDraft(); return false; }
+    state.selected.chapter = d.chapter;
+    state.selected.startVerse = d.startVerse;
+    state.selected.endVerse = d.endVerse;
+    state.passage = passage;
+    state.draft = d.text;
+    state.hintLevel = Math.min(global.UI.HINT_MAX, d.hintLevel || 0);
+    state.result = null;
+    renderMemorize();
+    startTimer(d.elapsed);
+    var ta = document.getElementById('answerInput');
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    return true;
   }
 
   function paintTimer() {
@@ -370,6 +435,7 @@
     ta.value = text;
     state.draft = text;
     updateCharCount();
+    scheduleDraftSave();
     ta.scrollTop = ta.scrollHeight;
   }
 
@@ -457,6 +523,9 @@
         state.compare = null;
         state.attemptNo = 0;
       }
+
+      if (draftTimer) { global.clearTimeout(draftTimer); draftTimer = null; }
+      global.Store.clearDraft();   // 채점까지 마쳤으니 임시 저장은 지운다
 
       var saved = global.Store.saveAttempt({
         chapter: result.chapter,
@@ -844,10 +913,16 @@
       if (e.target && e.target.id === 'answerInput') {
         state.draft = e.target.value;
         updateCharCount();
+        scheduleDraftSave();
       }
     });
 
     document.addEventListener('keydown', onKeyDown);
+    // 탭이 가려지거나 닫히기 직전에는 기다리지 않고 바로 저장한다. (휴대폰은 예고 없이 탭을 닫는다)
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') saveDraftNow();
+    });
+    global.addEventListener('pagehide', saveDraftNow);
   }
 
   function closestAction(node) {
@@ -904,7 +979,25 @@
         renderPuzzle();
         break;
 
+      case 'pz-open':
+        // 채점 결과의 약한 절을 퍼즐로 바로 연습한다.
+        state.puzzle.chapter = Number(el.getAttribute('data-c'));
+        state.puzzle.verse = Number(el.getAttribute('data-v'));
+        puzzleLoad();
+        go('puzzle');
+        break;
+
       case 'pz-step': puzzleStep(Number(el.getAttribute('data-d'))); break;
+
+      case 'pz-reset':
+        if (global.confirm('퍼즐 진도와 최고 점수를 모두 지웁니다. 암송 기록은 그대로 남습니다. 계속할까요?')) {
+          global.Store.clearPuzzle();
+          state.puzzle.chapter = 1; state.puzzle.verse = 1;
+          state.puzzle.data = null;
+          global.UI.toast('퍼즐 진도를 초기화했습니다.');
+          renderSettings();
+        }
+        break;
 
       case 'pz-resume': {
         var sv = global.RevPuzzle.load();
@@ -1160,7 +1253,19 @@
       case 'hint': useHint(); break;
       case 'submit': submitAnswer(); break;
 
+      case 'draft-resume':
+        if (!resumeDraft()) { global.UI.toast('이어 쓸 내용을 찾지 못했습니다.', true); renderHome(); }
+        break;
+      case 'draft-discard':
+        global.Store.clearDraft();
+        global.UI.toast('쓰던 내용을 지웠습니다.');
+        renderHome();
+        break;
+
       case 'give-up':
+        if (draftTimer) { global.clearTimeout(draftTimer); draftTimer = null; }
+        state.draft = '';
+        global.Store.clearDraft();
         stopTimer();
         go('select');
         break;
@@ -1314,6 +1419,17 @@
   }
 
   function onKeyDown(e) {
+    // 퍼즐 직접 입력: Enter 로 다음 빈칸, 마지막 칸에서는 채점
+    if (state.screen === 'puzzle' && e.key === 'Enter' && !e.isComposing &&
+        e.target && e.target.getAttribute && e.target.getAttribute('data-role') === 'pz-type') {
+      e.preventDefault();
+      var boxes = Array.prototype.slice.call(
+        document.querySelectorAll('#screen-puzzle [data-role="pz-type"]'));
+      var at = boxes.indexOf(e.target);
+      if (at >= 0 && at < boxes.length - 1) boxes[at + 1].focus();
+      else if (!state.puzzle.result) puzzleSubmit();
+      return;
+    }
     if (!document.getElementById('modalBack').hidden && e.key === 'Escape') {
       global.UI.closeModal();
       return;

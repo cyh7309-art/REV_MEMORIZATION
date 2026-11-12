@@ -1106,6 +1106,63 @@ check('퍼즐이 없는 예전 백업도 문제없이 복원된다',
 Store.clearPuzzle();
 Store.clearHistory();
 
+group('암송 퍼즐 — 빈칸이 한곳에 몰리지 않는다');
+check('초급은 어느 절에서도 빈칸이 서로 붙지 않는다 (자리가 되는 한)', (function () {
+  var chapters = RevData.getChapters(), bad = 0;
+  for (var i = 0; i < chapters.length; i++) {
+    var c = chapters[i], n = RevData.getVerseCount(c);
+    for (var v = 1; v <= n; v++) {
+      var p = RevPuzzle.build(c, v, 'easy');
+      // 빈칸 수가 어절의 절반 이하면 떨어뜨려 놓을 자리가 충분하다
+      if (p.total * 2 > p.words.length + 1) continue;
+      for (var k = 1; k < p.blanks.length; k++) {
+        if (p.blanks[k] - p.blanks[k - 1] === 1) { bad++; break; }
+      }
+    }
+  }
+  return bad === 0;
+})());
+check('떨어뜨려 놓아도 빈칸 수는 난이도 비율 그대로', (function () {
+  var p = RevPuzzle.build(22, 3, 'easy');
+  return p.total === Math.max(1, Math.round(p.words.length * RevPuzzle.levelOf('easy').ratio));
+})());
+check('빈칸 번호가 겹치지 않는다', (function () {
+  var p = RevPuzzle.build(13, 8, 'hard'), seen = {};
+  return p.blanks.every(function (i) { if (seen[i]) return false; seen[i] = true; return i >= 0 && i < p.words.length; });
+})());
+
+group('쓰던 암송 임시 저장');
+Store.clearDraft();
+check('저장한 것이 없으면 null', Store.getDraft() === null);
+Store.saveDraft({ chapter: 20, startVerse: 1, endVerse: 15, text: '또 내가 보매 천사가', hintLevel: 1, elapsed: 66 });
+check('쓰던 내용이 남는다', (Store.getDraft() || {}).text === '또 내가 보매 천사가');
+check('범위가 함께 남는다', (function () {
+  var d = Store.getDraft();
+  return d.chapter === 20 && d.startVerse === 1 && d.endVerse === 15;
+})());
+check('힌트 단계와 흐른 시간이 남는다', Store.getDraft().hintLevel === 1 && Store.getDraft().elapsed === 66);
+check('저장 시각이 남는다', !!Store.getDraft().savedAt);
+check('빈 내용을 저장하면 지워진다', (function () {
+  Store.saveDraft({ chapter: 20, startVerse: 1, endVerse: 15, text: '   ' });
+  return Store.getDraft() === null;
+})());
+check('범위가 없는 깨진 값은 무시한다', (function () {
+  Store.saveDraft({ chapter: 0, startVerse: 0, endVerse: 0, text: '내용' });
+  return Store.getDraft() === null;
+})());
+check('지우면 사라진다', (function () {
+  Store.saveDraft({ chapter: 1, startVerse: 1, endVerse: 3, text: '예수 그리스도의' });
+  Store.clearDraft();
+  return Store.getDraft() === null;
+})());
+check('임시 저장은 백업 파일에 들어가지 않는다', (function () {
+  Store.saveDraft({ chapter: 1, startVerse: 1, endVerse: 3, text: '예수 그리스도의' });
+  var b = Store.exportAll();
+  Store.clearDraft();
+  return b.draft === undefined;
+})());
+check('임시 저장은 학습 기록에 섞이지 않는다', Store.getHistory().length === 0);
+
 /* ---------- 결과 ---------- */
 console.log('\n' + '─'.repeat(52));
 if (fail === 0) {

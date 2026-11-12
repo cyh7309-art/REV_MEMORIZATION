@@ -96,6 +96,18 @@
     var s = ctx.summary;
     var html = '';
 
+    if (ctx.draft) {
+      html += '<div class="card card-accent" style="margin-bottom:16px"><div class="card-head">' +
+        '<h2 class="card-title"><span class="lead">📝</span>쓰던 암송이 남아 있습니다</h2>' +
+        '<span class="muted">' + escapeHtml(global.RevStats.formatDate(ctx.draft.savedAt)) + '</span></div>' +
+        '<p class="muted" style="margin:-4px 0 12px"><b style="color:var(--text)">' + escapeHtml(ctx.draft.reference) +
+        '</b> · ' + ctx.draft.chars + '자까지 쓰셨습니다. 시간도 이어서 잽니다.</p>' +
+        '<div class="btn-row">' +
+        '<button class="btn btn-primary" data-action="draft-resume" type="button">이어 쓰기</button>' +
+        '<button class="btn btn-ghost" data-action="draft-discard" type="button">버리기</button>' +
+        '</div></div>';
+    }
+
     html += '<div class="hero">' +
       '<div class="hero-label">🔥 오늘의 암송</div>' +
       '<div class="hero-ref">' + escapeHtml(ctx.pick.reference) + '</div>' +
@@ -499,7 +511,9 @@
         '<span>정확 ' + v.correct + ' · 비슷함 ' + v.similar + ' · 틀림 ' + v.wrong +
         ' · 빠뜨림 ' + v.missing + ' · 잘못 넣음 ' + v.extra + '</span>' +
         (v.score < 80 ? '<button class="btn btn-sm btn-ghost" data-action="practice-verse" data-c="' + r.chapter +
-          '" data-v="' + v.verse + '" type="button">이 절만 다시</button>' : '') +
+          '" data-v="' + v.verse + '" type="button">이 절만 다시</button>' +
+          '<button class="btn btn-sm btn-ghost" data-action="pz-open" data-c="' + r.chapter +
+          '" data-v="' + v.verse + '" type="button">🧩 퍼즐로 연습</button>' : '') +
         '</div><div class="diff-flow">' +
         v.ops.map(function (op, i) { return tokenHtml(op, idx + '-' + i); }).join('') +
         '</div></div>';
@@ -813,6 +827,9 @@
     html += '</div>';
 
     /* 보기 */
+    if (ctx.mode === 'type' && !res) {
+      html += '<p class="muted" style="margin:12px 0 0">Enter 를 누르면 다음 빈칸으로 넘어가고, 마지막 칸에서는 채점합니다.</p>';
+    }
     if (ctx.mode === 'pick' && !res) {
       var rest = ctx.bank;
       html += '<p class="quick-title" style="margin-top:14px">보기 — 누르면 앞쪽 빈칸부터 들어갑니다</p>' +
@@ -1052,6 +1069,7 @@
         '<button class="btn btn-ghost" data-action="clear-favs" type="button">즐겨찾기 비우기</button>' +
         '<button class="btn btn-ghost" data-action="srs-reset" type="button">복습 일정 초기화</button>' +
         '<button class="btn btn-ghost" data-action="plan-reset" type="button">누적 계획 초기화</button>' +
+        '<button class="btn btn-ghost" data-action="pz-reset" type="button">퍼즐 진도 초기화</button>' +
       '</div></div>';
 
     html += '<div class="card"><div class="card-head"><h2 class="card-title"><span class="lead">👥</span>여러 명 취합</h2></div>' +

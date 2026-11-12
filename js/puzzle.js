@@ -94,7 +94,18 @@
 
     var rand = rng(seedFrom(c, v, lv.key));
     var order = shuffle(words.map(function (_, i) { return i; }), rand);
-    var blanks = order.slice(0, want).sort(function (a, b) { return a - b; });
+    // 빈칸이 한곳에 몰리면 앞뒤 문맥이 사라져 난이도보다 어려워진다.
+    // 먼저 서로 이웃하지 않는 자리부터 고르고, 모자라면 남은 자리로 채운다.
+    var taken = {}, picked = [];
+    function take(i) { taken[i] = true; picked.push(i); }
+    var k;
+    for (k = 0; k < order.length && picked.length < want; k++) {
+      if (!taken[order[k] - 1] && !taken[order[k] + 1]) take(order[k]);
+    }
+    for (k = 0; k < order.length && picked.length < want; k++) {
+      if (!taken[order[k]]) take(order[k]);
+    }
+    var blanks = picked.sort(function (a, b) { return a - b; });
 
     // 보기는 지운 말들을 섞어서 (같은 말이 두 번 나와도 그대로 둔다)
     var bank = shuffle(blanks.map(function (i) {
