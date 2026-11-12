@@ -16,7 +16,8 @@
     settings:  'revelation_settings',
     data:      'revelation_custom_data',
     srs:       'revelation_srs',
-    plans:     'revelation_plans'
+    plans:     'revelation_plans',
+    puzzle:    'revelation_puzzle'
   };
 
   var HISTORY_LIMIT = 500;
@@ -196,6 +197,17 @@
   function savePlans(obj) { return writeJSON(KEY.plans, obj || {}); }
   function clearPlans() { removeKey(KEY.plans); }
 
+  /* ---------- 퍼즐 진도 ----------
+     퍼즐은 학습 기록(history)과 섞지 않고 자기 저장소만 쓴다.
+     그래야 퍼즐 점수가 암송 평균이나 복습 일정에 영향을 주지 않는다. */
+
+  function getPuzzle() {
+    var obj = readJSON(KEY.puzzle, {});
+    return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
+  }
+  function savePuzzle(obj) { return writeJSON(KEY.puzzle, obj || {}); }
+  function clearPuzzle() { removeKey(KEY.puzzle); }
+
   /* ---------- 사용자 본문 데이터 ---------- */
 
   function getCustomData() { return readJSON(KEY.data, null); }
@@ -215,7 +227,8 @@
       history: getHistory(),
       settings: settings,
       srs: getSrs(),
-      plans: getPlans()
+      plans: getPlans(),
+      puzzle: getPuzzle()
     };
   }
 
@@ -226,6 +239,7 @@
     if (obj.settings && typeof obj.settings === 'object') saveSettings(obj.settings);
     if (obj.srs && typeof obj.srs === 'object' && !Array.isArray(obj.srs)) saveSrs(obj.srs);
     if (obj.plans && typeof obj.plans === 'object' && !Array.isArray(obj.plans)) savePlans(obj.plans);
+    if (obj.puzzle && typeof obj.puzzle === 'object' && !Array.isArray(obj.puzzle)) savePuzzle(obj.puzzle);
     return true;
   }
 
@@ -248,6 +262,9 @@
     getPlans: getPlans,
     savePlans: savePlans,
     clearPlans: clearPlans,
+    getPuzzle: getPuzzle,
+    savePuzzle: savePuzzle,
+    clearPuzzle: clearPuzzle,
     getCustomData: getCustomData,
     saveCustomData: saveCustomData,
     clearCustomData: clearCustomData,

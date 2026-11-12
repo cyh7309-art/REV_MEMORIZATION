@@ -708,3 +708,84 @@ details.fold > div{ padding:0 16px 16px; }
 .cmp-keep::before{ background:var(--warn); }
 .cmp-bad::before { background:var(--bad); }
 .cmp-list b{ color:var(--text); }
+
+/* ---------- 암송 퍼즐 ---------- */
+.pz-setup{ display:flex; flex-direction:column; gap:12px; }
+.pz-pickers{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+
+/* 난이도·방식 고르기 */
+.seg{ display:flex; border:1px solid var(--line-strong); border-radius:var(--r-m); overflow:hidden; }
+.seg-btn{
+  flex:1 1 0; padding:10px 6px; min-height:42px;
+  background:var(--surface); border:0; border-left:1px solid var(--line);
+  font-family:inherit; font-size:14px; font-weight:700; color:var(--text-2);
+  cursor:pointer; transition:background .12s, color .12s;
+}
+.seg-btn:first-child{ border-left:0; }
+.seg-btn:hover{ background:var(--bg-sunken); }
+.seg-btn.on{ background:var(--navy); color:#fff; }
+.seg-sm .seg-btn{ font-size:13px; min-height:38px; padding:8px 6px; }
+.pz-resume-at{ font-weight:800; opacity:.9; }
+
+/* 문제 본문 */
+.pz-board .pz-text{
+  font-family:var(--serif); font-size:17px; line-height:2.3;
+  display:flex; flex-wrap:wrap; align-items:center; gap:6px 7px;
+  padding:4px 0 2px; word-break:keep-all;
+}
+.pz-fixed{ color:var(--text); }
+
+.pz-blank{
+  display:inline-flex; flex-direction:column; align-items:center; justify-content:center;
+  min-width:62px; min-height:38px; padding:3px 10px;
+  border:1px dashed var(--line-strong); border-radius:var(--r-s);
+  background:var(--bg-sunken); color:var(--text);
+  font-family:var(--serif); font-size:17px; line-height:1.4;
+  cursor:pointer; transition:background .12s, border-color .12s;
+}
+.pz-blank:hover:not(:disabled){ border-color:var(--navy-soft); background:var(--navy-tint); }
+.pz-blank:disabled{ cursor:default; }
+.pz-dash{ color:var(--text-3); letter-spacing:.06em; }
+.pz-blank.filled{ border-style:solid; border-color:var(--gold); background:var(--gold-tint); color:#4A3A10; }
+.pz-blank.ok{ border-style:solid; border-color:#BFE0CD; background:var(--ok-bg); color:var(--ok); }
+.pz-blank.bad{ border-style:solid; border-color:#F0C3CA; background:var(--bad-bg); color:var(--bad); }
+.pz-answer{ font-family:var(--font); font-size:11.5px; font-weight:800; color:var(--ok); margin-top:1px; }
+
+/* 직접 입력 */
+.pz-typed{ padding:0; border:0; background:none; min-width:0; }
+.pz-input{
+  font-family:var(--serif); font-size:16.5px; text-align:center;
+  padding:5px 8px; min-height:38px;
+  border:1px dashed var(--line-strong); border-radius:var(--r-s);
+  background:var(--bg-sunken); color:var(--text);
+}
+.pz-input:focus{ outline:2px solid var(--navy-soft); outline-offset:1px; border-color:var(--navy-soft); }
+.pz-blank.ok .pz-input{ border-style:solid; border-color:#BFE0CD; background:var(--ok-bg); color:var(--ok); }
+.pz-blank.bad .pz-input{ border-style:solid; border-color:#F0C3CA; background:var(--bad-bg); color:var(--bad); }
+
+/* 보기 */
+.pz-bank{ display:flex; flex-wrap:wrap; gap:8px; }
+.pz-word{ font-family:var(--serif); font-size:16px; padding:8px 14px; min-height:42px; }
+
+/* 결과 */
+.pz-result{
+  display:flex; flex-direction:column; gap:3px;
+  margin-top:14px; padding:12px 14px; border-radius:var(--r-m); border:1px solid;
+  font-size:14px;
+}
+.pz-result b{ font-size:15.5px; }
+.pz-result span{ color:var(--text-2); font-size:13px; }
+.pz-result.ok  { background:var(--ok-bg);  border-color:#BFE0CD; color:var(--ok); }
+.pz-result.warn{ background:var(--warn-bg); border-color:#EBD6A2; color:var(--warn); }
+.pz-result.bad { background:var(--bad-bg);  border-color:#F0C3CA; color:var(--bad); }
+
+.pz-actions{ margin-top:16px; }
+.pz-nav .btn{ flex:1 1 auto; }
+
+@media (max-width: 860px){
+  .pz-board .pz-text{ font-size:16px; line-height:2.2; }
+  .pz-blank{ min-width:56px; font-size:16px; }
+  .seg-btn{ font-size:13px; }
+  .seg-sm .seg-btn{ font-size:12px; }
+  .pz-nav .btn{ flex:1 1 44%; }
+}

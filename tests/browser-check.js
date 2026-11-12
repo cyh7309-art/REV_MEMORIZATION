@@ -363,7 +363,7 @@ const LAUNCH = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PA
   ok('모바일에서 본문 읽기가 열린다', await mp.isVisible('#screen-read .verses'));
   const readOverflow = await mp.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   ok('모바일 본문 읽기에서 가로 스크롤이 없다', readOverflow <= 0, readOverflow);
-  ok('하단 네비게이션 6개가 모두 보인다', (await mp.locator('.bottom-nav .nav-item').count()) === 6,
+  ok('하단 네비게이션 7개가 모두 보인다', (await mp.locator('.bottom-nav .nav-item').count()) === 7,
      await mp.locator('.bottom-nav .nav-item').count());
   const navFits = await mp.evaluate(() => {
     const nav = document.querySelector('.bottom-nav');
@@ -531,6 +531,164 @@ const LAUNCH = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PA
   ok('첫 시도에는 비교 카드가 없다', (await page.locator('.compare-card').count()) === 0);
 
   await page.screenshot({ path: path.join(__dirname, 'shot-desktop-result3.png'), fullPage: false });
+
+  /* ---------- 암송 퍼즐 ---------- */
+  const beforePuzzle = await page.evaluate(() => {
+    Store.clearPuzzle(); Store.clearHistory();
+    return { srs: Object.keys(Store.getSrs()).length, plans: Object.keys(Store.getPlans()).length };
+  });
+  await page.click('.side-nav [data-nav="puzzle"]');
+  await page.waitForSelector('#screen-puzzle .pz-text');
+  ok('퍼즐 화면이 열린다', await page.isVisible('#screen-puzzle .pz-text'));
+
+  await page.selectOption('#pzChapter', '1');
+  await page.waitForTimeout(120);
+  await page.selectOption('#pzVerse', '1');
+  await page.waitForTimeout(120);
+  await page.click('[data-action="pz-level"][data-level="normal"]');
+  await page.waitForTimeout(150);
+
+  const pzInfo = await page.evaluate(() => {
+    const d = RevApp.state.puzzle.data;
+    return { words: d.words.length, blanks: d.total, firstBlank: d.blanks[0] };
+  });
+  ok('빈칸이 생긴다', pzInfo.blanks > 0 && pzInfo.blanks < pzInfo.words, JSON.stringify(pzInfo));
+  ok('빈칸 수와 보기 수가 같다',
+     (await page.locator('#screen-puzzle .pz-word').count()) === pzInfo.blanks);
+  ok('빈칸이 화면에 그려진다',
+     (await page.locator('#screen-puzzle .pz-blank').count()) === pzInfo.blanks);
+
+  /* 보기를 눌러 채우기 — 첫 어절(번호 0)이 빈칸인 경우까지 확인한다 */
+  const fillAllCorrect = async () => {
+    for (;;) {
+      const need = await page.evaluate(() => {
+        const p = RevApp.state.puzzle;
+        for (const i of p.data.blanks) if (!p.filled[i]) return p.data.words[i];
+        return null;
+      });
+      if (!need) break;
+      const esc = need.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const chip = page.locator('#screen-puzzle .pz-word', { hasText: new RegExp('^' + esc + '$') }).first();
+      if (!(await chip.count())) return false;
+      await chip.click();
+      await page.waitForTimeout(40);
+    }
+    return true;
+  };
+  ok('보기를 눌러 모든 빈칸을 채울 수 있다', await fillAllCorrect());
+  ok('채운 보기는 목록에서 사라진다',
+     (await page.locator('#screen-puzzle .pz-word').count()) === 0,
+     await page.locator('#screen-puzzle .pz-word').count());
+
+  await page.click('[data-action="pz-submit"]');
+  await page.waitForSelector('#screen-puzzle .pz-result');
+  ok('전부 맞으면 100점', (await page.textContent('.pz-result')).includes('100점'),
+     (await page.textContent('.pz-result')).replace(/\s+/g, ' '));
+  ok('맞은 칸이 초록으로 표시된다',
+     (await page.locator('#screen-puzzle .pz-blank.ok').count()) === pzInfo.blanks);
+
+  /* 틀렸을 때 정답을 보여준다 */
+  await page.click('[data-action="pz-retry"]');
+  await page.waitForTimeout(150);
+  await page.locator('#screen-puzzle .pz-word').last().click();
+  await page.waitForTimeout(60);
+  await page.click('[data-action="pz-submit"]');
+  await page.waitForSelector('#screen-puzzle .pz-result');
+  ok('덜 채우면 100점이 아니다', !(await page.textContent('.pz-result')).includes('100점'));
+  ok('틀린 칸 아래에 정답이 보인다',
+     (await page.locator('#screen-puzzle .pz-answer').count()) > 0);
+
+  /* 채운 칸을 눌러 빼기 */
+  await page.click('[data-action="pz-retry"]');
+  await page.waitForTimeout(150);
+  const bankBefore = await page.locator('#screen-puzzle .pz-word').count();
+  await page.locator('#screen-puzzle .pz-word').first().click();
+  await page.waitForTimeout(80);
+  ok('보기를 넣으면 목록에서 하나 줄어든다',
+     (await page.locator('#screen-puzzle .pz-word').count()) === bankBefore - 1);
+  await page.locator('#screen-puzzle .pz-blank.filled').first().click();
+  await page.waitForTimeout(80);
+  ok('채운 칸을 누르면 보기로 되돌아간다',
+     (await page.locator('#screen-puzzle .pz-word').count()) === bankBefore);
+
+  /* 첫 어절이 빈칸인 경우 — 어절 번호 0 이 거짓값이라 생기는 실수를 막는다.
+     (1장 1절 초급은 첫 어절이 빈칸이다) */
+  await page.click('[data-action="pz-level"][data-level="easy"]');
+  await page.waitForTimeout(180);
+  const zeroCase = await page.evaluate(() => RevApp.state.puzzle.data.blanks[0] === 0);
+  ok('첫 어절이 빈칸인 문제를 불러왔다', zeroCase);
+  const bankZero = await page.locator('#screen-puzzle .pz-word').count();
+  await page.evaluate(() => {
+    // 첫 빈칸(번호 0)에 들어갈 정답을 보기에서 찾아 누른다
+    const p = RevApp.state.puzzle;
+    const want = p.data.words[0];
+    const chip = [...document.querySelectorAll('#screen-puzzle .pz-word')]
+      .find(el => el.textContent.trim() === want);
+    chip.click();
+  });
+  await page.waitForTimeout(100);
+  ok('첫 칸에 넣어도 그 보기가 목록에서 사라진다',
+     (await page.locator('#screen-puzzle .pz-word').count()) === bankZero - 1,
+     bankZero + ' → ' + (await page.locator('#screen-puzzle .pz-word').count()));
+  ok('첫 칸이 채워진 것으로 표시된다',
+     (await page.evaluate(() => !!RevApp.state.puzzle.filled[0])));
+  await page.click('[data-action="pz-clear"]');
+  await page.waitForTimeout(120);
+  await page.click('[data-action="pz-level"][data-level="normal"]');
+  await page.waitForTimeout(150);
+
+  /* 직접 입력 모드 */
+  await page.click('[data-action="pz-mode"][data-mode="type"]');
+  await page.waitForTimeout(180);
+  ok('직접 입력 모드에서는 입력칸이 나온다',
+     (await page.locator('#screen-puzzle .pz-input').count()) === pzInfo.blanks);
+  ok('직접 입력 모드에는 보기가 없다',
+     (await page.locator('#screen-puzzle .pz-word').count()) === 0);
+  await page.evaluate(() => {
+    const p = RevApp.state.puzzle;
+    document.querySelectorAll('#screen-puzzle [data-role="pz-type"]').forEach(el => {
+      el.value = p.data.words[Number(el.getAttribute('data-i'))] + ',';   // 문장부호를 일부러 붙인다
+    });
+  });
+  await page.click('[data-action="pz-submit"]');
+  await page.waitForSelector('#screen-puzzle .pz-result');
+  ok('직접 입력도 채점된다 (문장부호는 눈감아준다)',
+     (await page.textContent('.pz-result')).includes('100점'),
+     (await page.textContent('.pz-result')).replace(/\s+/g, ' '));
+
+  /* 절 이동과 진도 */
+  await page.click('[data-action="pz-mode"][data-mode="pick"]');
+  await page.waitForTimeout(150);
+  await page.click('[data-action="pz-step"][data-d="1"]');
+  await page.waitForTimeout(200);
+  ok('다음 절로 넘어간다',
+     (await page.textContent('#screen-puzzle .pz-board .card-title')).includes('1장 2절'),
+     await page.textContent('#screen-puzzle .pz-board .card-title'));
+  ok('푼 절이 진도에 반영된다',
+     (await page.textContent('#screen-puzzle .bar-num')) !== '0%',
+     await page.textContent('#screen-puzzle .bar-num'));
+
+  /* 퍼즐은 암송 기록과 섞이지 않는다 */
+  ok('퍼즐 점수가 학습 기록에 섞이지 않는다',
+     (await page.evaluate(() => Store.getHistory().length)) === 0);
+  ok('퍼즐 점수가 복습 일정을 건드리지 않는다',
+     (await page.evaluate(() => Object.keys(Store.getSrs()).length)) === beforePuzzle.srs,
+     'before ' + beforePuzzle.srs);
+  ok('퍼즐이 누적 암송 계획도 건드리지 않는다',
+     (await page.evaluate(() => Object.keys(Store.getPlans()).length)) === beforePuzzle.plans);
+  ok('퍼즐 진도는 따로 저장된다',
+     (await page.evaluate(() => Object.keys(Store.getPuzzle().best || {}).length)) > 0);
+
+  /* 새로고침해도 풀던 자리가 남는다 */
+  await page.reload();
+  await page.waitForSelector('.hero-ref');
+  await page.click('.side-nav [data-nav="puzzle"]');
+  await page.waitForSelector('#screen-puzzle .pz-text');
+  ok('새로고침 후에도 풀던 절로 열린다',
+     (await page.textContent('#screen-puzzle .pz-board .card-title')).includes('1장 2절'),
+     await page.textContent('#screen-puzzle .pz-board .card-title'));
+
+  await page.screenshot({ path: path.join(__dirname, 'shot-desktop-puzzle.png'), fullPage: false });
 
   /* ---------- 안드로이드(갤럭시) 음성 중복 입력 회귀 방지 ----------
      갤럭시 크롬은 onresult 마다 resultIndex 를 0 으로 주면서 지금까지의 결과를

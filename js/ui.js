@@ -103,6 +103,7 @@
       '<div class="btn-row">' +
         '<button class="btn btn-gold" data-action="start-today" type="button">암송 시작</button>' +
         '<button class="btn btn-ghost" data-action="read-today" type="button">본문 먼저 읽기</button>' +
+        '<button class="btn btn-ghost" data-action="go-puzzle" type="button">🧩 퍼즐로 연습</button>' +
         '<button class="btn btn-ghost" data-action="go-select" type="button">다른 범위 고르기</button>' +
       '</div>' +
     '</div>';
@@ -703,6 +704,163 @@
     return html;
   }
 
+  /* ---------- 암송 퍼즐 ---------- */
+
+  function renderPuzzle(ctx) {
+    var chapters = global.RevData.getChapters();
+    var maxVerse = global.RevData.getVerseCount(ctx.chapter) || 1;
+    var pz = ctx.puzzle;
+
+    function opts(list, sel, suffix) {
+      return list.map(function (n) {
+        return '<option value="' + n + '"' + (Number(n) === Number(sel) ? ' selected' : '') + '>' +
+          n + suffix + '</option>';
+      }).join('');
+    }
+    var verses = [];
+    for (var v = 1; v <= maxVerse; v++) verses.push(v);
+
+    var html = '<div class="page-head"><h1 class="page-title">암송 퍼즐</h1>' +
+      '<p class="page-sub">빈칸에 들어갈 말을 맞춰보세요. 외운 것을 적어 보기 전에, ' +
+      '가볍게 여러 번 반복하기 좋은 연습입니다.</p></div>';
+
+    /* --- 고르기 --- */
+    html += '<div class="card pz-setup">' +
+      '<div class="pz-pickers">' +
+        '<div class="field"><label for="pzChapter">장</label>' +
+          '<select id="pzChapter" data-role="pz-chapter">' + opts(chapters, ctx.chapter, '장') + '</select></div>' +
+        '<div class="field"><label for="pzVerse">절</label>' +
+          '<select id="pzVerse" data-role="pz-verse">' + opts(verses, ctx.verse, '절') + '</select></div>' +
+      '</div>' +
+      '<div class="seg" role="group" aria-label="난이도">' +
+        global.RevPuzzle.LEVELS.map(function (lv) {
+          return '<button class="seg-btn' + (lv.key === ctx.level ? ' on' : '') + '" ' +
+            'data-action="pz-level" data-level="' + lv.key + '" type="button" ' +
+            'aria-pressed="' + (lv.key === ctx.level ? 'true' : 'false') + '">' + lv.label + '</button>';
+        }).join('') +
+      '</div>' +
+      '<div class="seg seg-sm" role="group" aria-label="푸는 방식">' +
+        '<button class="seg-btn' + (ctx.mode === 'pick' ? ' on' : '') + '" data-action="pz-mode" ' +
+          'data-mode="pick" type="button" aria-pressed="' + (ctx.mode === 'pick' ? 'true' : 'false') + '">보기에서 고르기</button>' +
+        '<button class="seg-btn' + (ctx.mode === 'type' ? ' on' : '') + '" data-action="pz-mode" ' +
+          'data-mode="type" type="button" aria-pressed="' + (ctx.mode === 'type' ? 'true' : 'false') + '">직접 입력</button>' +
+      '</div>';
+
+    if (ctx.resume) {
+      html += '<button class="btn btn-gold btn-block" data-action="pz-resume" type="button">' +
+        '이어하기 <span class="pz-resume-at">' + escapeHtml(ctx.resume.label) + '</span></button>';
+    }
+    html += '</div>';
+
+    /* --- 이 장 진도 --- */
+    if (ctx.progress && ctx.progress.total) {
+      html += '<div class="card"><div class="card-head">' +
+        '<h2 class="card-title"><span class="lead">🧩</span>' + ctx.chapter + '장 ' +
+        escapeHtml(global.RevPuzzle.levelOf(ctx.level).label) + ' 진도</h2>' +
+        '<span class="muted">' + ctx.progress.cleared + ' / ' + ctx.progress.total + '절</span></div>' +
+        '<div class="bar-row"><div class="bar"><i style="width:' + ctx.progress.percent +
+        '%;background:var(--ok)"></i></div><span class="bar-num">' + ctx.progress.percent + '%</span></div></div>';
+    }
+
+    /* --- 문제 --- */
+    if (!pz) {
+      html += '<div class="card"><p class="empty">이 절의 본문을 찾을 수 없습니다.</p></div>';
+      return html;
+    }
+
+    var res = ctx.result;
+    var byIndex = {};
+    if (res) res.results.forEach(function (r) { byIndex[r.index] = r; });
+
+    html += '<div class="card pz-board"><div class="card-head">' +
+      '<h2 class="card-title">' + pz.chapter + '장 ' + pz.verse + '절' +
+      ' <span class="pill">' + escapeHtml(pz.levelLabel) + '</span></h2>' +
+      '<span class="muted">빈칸 ' + pz.total + '개' +
+      (ctx.best ? ' · 최고 ' + ctx.best.score + '점' + (ctx.best.cleared ? ' ✓' : '') : '') +
+      '</span></div>';
+
+    html += '<div class="pz-text">';
+    for (var i = 0; i < pz.words.length; i++) {
+      var isBlank = pz.blanks.indexOf(i) >= 0;
+      if (!isBlank) {
+        html += '<span class="pz-fixed">' + escapeHtml(pz.words[i]) + '</span>';
+        continue;
+      }
+      var filledWord = ctx.filled[i];
+      var mark = byIndex[i];
+      var cls = 'pz-blank';
+      if (mark) cls += mark.correct ? ' ok' : ' bad';
+      else if (filledWord) cls += ' filled';
+
+      if (ctx.mode === 'type') {
+        html += '<span class="' + cls + ' pz-typed">' +
+          '<input class="pz-input" type="text" data-role="pz-type" data-i="' + i + '" ' +
+          'value="' + escapeHtml(filledWord || '') + '" ' +
+          'size="' + Math.max(3, pz.words[i].length + 1) + '" ' +
+          'autocomplete="off" autocapitalize="off" spellcheck="false" ' +
+          'aria-label="' + (i + 1) + '번째 어절" ' + (res ? 'readonly' : '') + '>' +
+          (mark && !mark.correct ? '<span class="pz-answer">' + escapeHtml(mark.answer) + '</span>' : '') +
+          '</span>';
+      } else {
+        html += '<button class="' + cls + '" data-action="pz-unfill" data-i="' + i + '" type="button" ' +
+          'aria-label="' + (filledWord ? escapeHtml(filledWord) + ' 빼기' : '빈칸') + '"' +
+          (res ? ' disabled' : '') + '>' +
+          (filledWord ? escapeHtml(filledWord) : '<span class="pz-dash">____</span>') +
+          (mark && !mark.correct ? '<span class="pz-answer">' + escapeHtml(mark.answer) + '</span>' : '') +
+          '</button>';
+      }
+    }
+    html += '</div>';
+
+    /* 보기 */
+    if (ctx.mode === 'pick' && !res) {
+      var rest = ctx.bank;
+      html += '<p class="quick-title" style="margin-top:14px">보기 — 누르면 앞쪽 빈칸부터 들어갑니다</p>' +
+        '<div class="pz-bank">' +
+        (rest.length
+          ? rest.map(function (b) {
+              return '<button class="chip pz-word" data-action="pz-pick" data-id="' + b.id +
+                '" type="button">' + escapeHtml(b.word) + '</button>';
+            }).join('')
+          : '<span class="muted">보기를 모두 넣었습니다. 아래에서 확인하세요.</span>') +
+        '</div>';
+    }
+
+    /* 결과 */
+    if (res) {
+      var tone = res.cleared ? 'ok' : (res.score >= 60 ? 'warn' : 'bad');
+      html += '<div class="pz-result ' + tone + '">' +
+        '<b>' + res.correct + ' / ' + res.total + ' 맞음 · ' + res.score + '점</b>' +
+        '<span>' + (res.cleared
+          ? '완벽합니다. 다음 절로 넘어가세요.'
+          : '빨간 칸 아래 작은 글씨가 정답입니다.') + '</span></div>';
+    }
+
+    html += '<div class="btn-row pz-actions">' +
+      (res
+        ? '<button class="btn btn-primary" data-action="pz-retry" type="button">다시 풀기</button>'
+        : '<button class="btn btn-primary" data-action="pz-submit" type="button">정답 제출</button>') +
+      '<button class="btn btn-ghost" data-action="pz-clear" type="button"' + (res ? ' disabled' : '') + '>비우기</button>' +
+      '<button class="btn btn-ghost" data-action="pz-reveal" type="button">본문 보기</button>' +
+      '</div>';
+
+    html += '</div>';
+
+    /* 이동 */
+    html += '<div class="card"><div class="btn-row pz-nav">' +
+      '<button class="btn btn-ghost" data-action="pz-step" data-d="-1" type="button"' +
+        (ctx.hasPrev ? '' : ' disabled') + '>◀ 이전 절</button>' +
+      '<button class="btn ' + (res && res.cleared ? 'btn-gold' : 'btn-ghost') + '" ' +
+        'data-action="pz-step" data-d="1" type="button"' + (ctx.hasNext ? '' : ' disabled') + '>다음 절 ▶</button>' +
+      '<button class="btn btn-ghost" data-action="read-range" data-c="' + pz.chapter +
+        '" data-s="' + pz.verse + '" data-e="' + pz.verse + '" type="button">📖 본문 읽기</button>' +
+      '<button class="btn btn-ghost" data-action="pz-memorize" data-c="' + pz.chapter +
+        '" data-v="' + pz.verse + '" type="button">✍️ 이 절 암송</button>' +
+      '</div></div>';
+
+    return html;
+  }
+
   /* ---------- 즐겨찾기 ---------- */
 
   function renderFavorites(ctx) {
@@ -1043,6 +1201,7 @@
     renderMemorize: renderMemorize,
     renderResult: renderResult,
     renderRead: renderRead,
+    renderPuzzle: renderPuzzle,
     renderFavorites: renderFavorites,
     renderHistory: renderHistory,
     renderSettings: renderSettings,

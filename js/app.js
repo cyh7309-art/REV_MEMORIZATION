@@ -28,6 +28,14 @@
     report: null,        // 취합 결과 (메모리에만 유지)
     reportFiles: [],
     installPrompt: null, // PWA 설치 프롬프트
+    puzzle: {            // 암송 퍼즐 화면
+      chapter: 1, verse: 1,
+      level: 'normal', mode: 'pick',
+      data: null,        // 지금 풀고 있는 문제
+      filled: {},        // {어절번호: 넣은 말}
+      used: {},          // {보기id: true}
+      result: null       // 채점 결과 (풀기 전에는 null)
+    },
     read: {              // 본문 읽기 화면
       chapter: 1,
       selection: null,   // {start, end} — 절을 눌러 잡은 범위
@@ -36,7 +44,8 @@
     }
   };
 
-  var SCREENS = ['home', 'select', 'read', 'memorize', 'result', 'favorites', 'history', 'settings', 'report'];
+  var SCREENS = ['home', 'select', 'read', 'puzzle', 'memorize', 'result',
+                 'favorites', 'history', 'settings', 'report'];
 
   /* ---------- 부팅 ---------- */
 
@@ -57,10 +66,21 @@
       }
       updateDemoBadge();
       clampSelection();
+      restorePuzzlePosition();
       bindGlobalEvents();
       setupPWA();
       go(initialScreen());
     });
+  }
+
+  /** 지난번에 풀던 퍼즐 자리를 불러온다. */
+  function restorePuzzlePosition() {
+    var sv = global.RevPuzzle.load();
+    var p = state.puzzle;
+    p.chapter = sv.chapter;
+    p.verse = sv.verse;
+    p.level = sv.level;
+    p.mode = sv.mode;
   }
 
   /** PWA 단축키(?screen=...)로 들어온 경우 해당 화면부터 연다. */
@@ -149,6 +169,7 @@
     if (name === 'home') return renderHome();
     if (name === 'select') return renderSelect();
     if (name === 'read') return renderRead();
+    if (name === 'puzzle') return renderPuzzle();
     if (name === 'favorites') return renderFavorites();
     if (name === 'history') return renderHistory();
     if (name === 'settings') return renderSettings();
@@ -513,6 +534,133 @@
 
   /* ---------- 본문 읽기 ---------- */
 
+  /* ---------- 암송 퍼즐 ---------- */
+
+  /** 지금 고른 장·절·난이도로 문제를 새로 만든다. (답은 비운다) */
+  function puzzleLoad(keepPosition) {
+    var p = state.puzzle;
+    var chapters = global.RevData.getChapters();
+    if (chapters.indexOf(p.chapter) < 0) p.chapter = chapters[0] || 1;
+    var max = global.RevData.getVerseCount(p.chapter) || 1;
+    if (p.verse > max) p.verse = max;
+    if (p.verse < 1) p.verse = 1;
+
+    p.data = global.RevPuzzle.build(p.chapter, p.verse, p.level);
+    p.filled = {};
+    p.used = {};
+    p.result = null;
+    if (!keepPosition) global.RevPuzzle.savePosition(p.chapter, p.verse, p.level, p.mode);
+  }
+
+  function renderPuzzle() {
+    var p = state.puzzle;
+    if (!p.data || p.data.chapter !== p.chapter || p.data.verse !== p.verse || p.data.level !== p.level) {
+      puzzleLoad();
+    }
+
+    // 저장해 둔 자리가 지금 보는 곳과 다르면 "이어하기"를 띄운다.
+    var saved = global.RevPuzzle.load();
+    var resume = null;
+    if (saved.chapter !== p.chapter || saved.verse !== p.verse) {
+      resume = {
+        chapter: saved.chapter, verse: saved.verse, level: saved.level,
+        label: '(' + saved.chapter + '장 ' + saved.verse + '절)'
+      };
+    }
+
+    paint('puzzle', global.UI.renderPuzzle({
+      chapter: p.chapter,
+      verse: p.verse,
+      level: p.level,
+      mode: p.mode,
+      puzzle: p.data,
+      filled: p.filled,
+      bank: p.data ? global.RevPuzzle.remainingBank(p.data, p.used) : [],
+      result: p.result,
+      best: global.RevPuzzle.bestOf(p.chapter, p.verse, p.level),
+      progress: global.RevPuzzle.chapterProgress(p.chapter, p.level),
+      resume: resume,
+      hasPrev: !!global.RevPuzzle.step(p.chapter, p.verse, -1),
+      hasNext: !!global.RevPuzzle.step(p.chapter, p.verse, 1)
+    }));
+  }
+
+  /** 보기를 눌렀을 때 — 앞쪽 빈칸부터 차례로 채운다. */
+  function puzzlePick(bankId) {
+    var p = state.puzzle;
+    if (!p.data || p.result) return;
+    var chip = null;
+    for (var i = 0; i < p.data.bank.length; i++) {
+      if (p.data.bank[i].id === bankId) { chip = p.data.bank[i]; break; }
+    }
+    // 첫 어절의 번호가 0이라 값으로 판단하면 안 된다. 키가 있는지로 본다.
+    if (!chip || Object.prototype.hasOwnProperty.call(p.used, chip.id)) return;
+
+    for (var b = 0; b < p.data.blanks.length; b++) {
+      var idx = p.data.blanks[b];
+      if (!p.filled[idx]) {
+        p.filled[idx] = chip.word;
+        p.used[chip.id] = idx;      // 어느 칸에 넣었는지 기억해 둔다
+        renderPuzzle();
+        return;
+      }
+    }
+    global.UI.toast('빈칸이 모두 찼습니다. 칸을 눌러 빼낼 수 있습니다.');
+  }
+
+  /** 채운 칸을 눌렀을 때 — 그 말을 보기로 돌려보낸다. */
+  function puzzleUnfill(index) {
+    var p = state.puzzle;
+    if (!p.data || p.result) return;
+    if (!p.filled[index]) return;
+    for (var id in p.used) {
+      if (Object.prototype.hasOwnProperty.call(p.used, id) && p.used[id] === index) {
+        delete p.used[id];
+        break;
+      }
+    }
+    delete p.filled[index];
+    renderPuzzle();
+  }
+
+  function puzzleSubmit() {
+    var p = state.puzzle;
+    if (!p.data) return;
+
+    if (p.mode === 'type') {
+      // 입력칸의 값을 모아 담는다.
+      var inputs = document.querySelectorAll('#screen-puzzle [data-role="pz-type"]');
+      p.filled = {};
+      Array.prototype.forEach.call(inputs, function (el) {
+        var v = (el.value || '').trim();
+        if (v) p.filled[Number(el.getAttribute('data-i'))] = v;
+      });
+    }
+
+    var empties = p.data.blanks.filter(function (i) { return !p.filled[i]; }).length;
+    if (empties === p.data.blanks.length) {
+      global.UI.toast('먼저 빈칸을 채워주세요.', true);
+      return;
+    }
+
+    p.result = global.RevPuzzle.check(p.data, p.filled);
+    global.RevPuzzle.record(p.data, p.result);
+    renderPuzzle();
+
+    if (p.result.cleared) global.UI.toast('전부 맞았습니다. 다음 절로 넘어가세요.');
+    else global.UI.toast(p.result.correct + ' / ' + p.result.total + ' 맞았습니다.');
+  }
+
+  function puzzleStep(delta) {
+    var p = state.puzzle;
+    var next = global.RevPuzzle.step(p.chapter, p.verse, delta);
+    if (!next) { global.UI.toast(delta > 0 ? '마지막 절입니다.' : '첫 절입니다.'); return; }
+    p.chapter = next.chapter;
+    p.verse = next.verse;
+    puzzleLoad();
+    renderPuzzle();
+  }
+
   function renderRead() {
     var r = state.read;
     var chapters = global.RevData.getChapters();
@@ -725,6 +873,64 @@
         break;
 
       case 'go-read': go('read'); break;
+      case 'go-puzzle': go('puzzle'); break;
+
+      /* ---- 암송 퍼즐 ---- */
+      case 'pz-level':
+        state.puzzle.level = global.RevPuzzle.normalizeLevel(el.getAttribute('data-level'));
+        puzzleLoad();
+        renderPuzzle();
+        break;
+
+      case 'pz-mode':
+        state.puzzle.mode = global.RevPuzzle.normalizeMode(el.getAttribute('data-mode'));
+        state.puzzle.filled = {};
+        state.puzzle.used = {};
+        state.puzzle.result = null;
+        global.RevPuzzle.savePosition(state.puzzle.chapter, state.puzzle.verse,
+                                      state.puzzle.level, state.puzzle.mode);
+        renderPuzzle();
+        break;
+
+      case 'pz-pick': puzzlePick(Number(el.getAttribute('data-id'))); break;
+      case 'pz-unfill': puzzleUnfill(Number(el.getAttribute('data-i'))); break;
+      case 'pz-submit': puzzleSubmit(); break;
+
+      case 'pz-retry':
+      case 'pz-clear':
+        state.puzzle.filled = {};
+        state.puzzle.used = {};
+        state.puzzle.result = null;
+        renderPuzzle();
+        break;
+
+      case 'pz-step': puzzleStep(Number(el.getAttribute('data-d'))); break;
+
+      case 'pz-resume': {
+        var sv = global.RevPuzzle.load();
+        state.puzzle.chapter = sv.chapter;
+        state.puzzle.verse = sv.verse;
+        state.puzzle.level = sv.level;
+        state.puzzle.mode = sv.mode;
+        puzzleLoad();
+        renderPuzzle();
+        break;
+      }
+
+      case 'pz-reveal':
+        global.UI.openModal(state.puzzle.chapter + '장 ' + state.puzzle.verse + '절',
+          '<p class="answer-box" style="font-size:16px">' +
+          global.UI.escapeHtml(global.RevData.getVerse(state.puzzle.chapter, state.puzzle.verse) || '') +
+          '</p>');
+        break;
+
+      case 'pz-memorize': {
+        var mc = Number(el.getAttribute('data-c')), mv = Number(el.getAttribute('data-v'));
+        sel.chapter = mc; sel.startVerse = mv; sel.endVerse = mv;
+        startMemorization(global.RevData.getPassage(mc, mv, mv));
+        break;
+      }
+
       case 'go-history': go('history'); break;
 
       /* ---- 본문 읽기 ---- */
@@ -1020,6 +1226,19 @@
 
     var role = t.getAttribute && t.getAttribute('data-role');
     if (role === 'read-chapter') { readGoChapter(Number(t.value)); return; }
+    if (role === 'pz-chapter') {
+      state.puzzle.chapter = Number(t.value);
+      state.puzzle.verse = 1;
+      puzzleLoad();
+      renderPuzzle();
+      return;
+    }
+    if (role === 'pz-verse') {
+      state.puzzle.verse = Number(t.value);
+      puzzleLoad();
+      renderPuzzle();
+      return;
+    }
     if (role) {
       var sel = state.selected;
       var value = Number(t.value);

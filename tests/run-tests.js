@@ -47,10 +47,11 @@ load('js/statistics.js');
 load('js/srs.js');
 load('js/plan.js');
 load('js/read.js');
+load('js/puzzle.js');
 load('js/voice.js');
 load('js/report.js');
 
-const { RevData, RevDiff, RevScorer, RevStats, Store, RevSRS, RevPlan, RevRead, RevVoice, RevReport } = sandbox;
+const { RevData, RevDiff, RevScorer, RevStats, Store, RevSRS, RevPlan, RevRead, RevPuzzle, RevVoice, RevReport } = sandbox;
 
 /* ---------- 미니 테스트 러너 ---------- */
 let pass = 0, fail = 0;
@@ -940,6 +941,170 @@ check('읽기에서 잡은 범위가 암송 본문으로 이어진다', (functio
   return p !== null && p.verses.length === 4 && p.startVerse === 2 && p.endVerse === 5;
 })());
 check('장 끝을 넘는 절은 본문이 없다', RevData.getPassage(1, 1, 999) === null);
+
+group('암송 퍼즐 — 문제 만들기');
+Store.clearPuzzle();
+
+check('난이도가 4단계다', RevPuzzle.LEVELS.length === 4);
+check('난이도마다 이름과 설명이 있다',
+  RevPuzzle.LEVELS.every(function (l) { return !!l.label && !!l.hint && l.ratio > 0; }));
+check('모르는 난이도는 기본값으로', RevPuzzle.normalizeLevel('없는난이도') === RevPuzzle.DEFAULT_LEVEL);
+check('모르는 방식은 기본값으로', RevPuzzle.normalizeMode('xyz') === RevPuzzle.DEFAULT_MODE);
+
+const pzVerse = RevData.getVerse(22, 3);
+const pzWordCount = pzVerse.trim().split(/\s+/).length;
+
+check('본문이 어절로 쪼개진다', RevPuzzle.build(22, 3, 'easy').words.length === pzWordCount);
+check('초급은 빈칸이 가장 적다',
+  RevPuzzle.build(22, 3, 'easy').total < RevPuzzle.build(22, 3, 'normal').total);
+check('난이도가 올라갈수록 빈칸이 늘어난다',
+  RevPuzzle.build(22, 3, 'normal').total < RevPuzzle.build(22, 3, 'hard').total);
+check('완벽은 전부 빈칸', RevPuzzle.build(22, 3, 'perfect').total === pzWordCount);
+check('아무리 짧아도 빈칸이 하나는 생긴다', (function () {
+  var chapters = RevData.getChapters();
+  for (var i = 0; i < chapters.length; i++) {
+    var c = chapters[i], n = RevData.getVerseCount(c);
+    for (var v = 1; v <= n; v++) {
+      if (RevPuzzle.build(c, v, 'easy').total < 1) return false;
+    }
+  }
+  return true;
+})());
+
+check('같은 절·난이도면 늘 같은 문제', (function () {
+  var a = RevPuzzle.build(1, 1, 'hard'), b = RevPuzzle.build(1, 1, 'hard');
+  return JSON.stringify(a.blanks) === JSON.stringify(b.blanks) &&
+         JSON.stringify(a.bank) === JSON.stringify(b.bank);
+})());
+check('절이 다르면 문제도 다르다', (function () {
+  var a = RevPuzzle.build(1, 1, 'hard'), b = RevPuzzle.build(1, 2, 'hard');
+  return JSON.stringify(a.blanks) !== JSON.stringify(b.blanks);
+})());
+check('난이도가 다르면 문제도 다르다', (function () {
+  var a = RevPuzzle.build(1, 1, 'easy'), b = RevPuzzle.build(1, 1, 'hard');
+  return JSON.stringify(a.blanks) !== JSON.stringify(b.blanks);
+})());
+
+check('보기 개수와 빈칸 개수가 같다', (function () {
+  var p = RevPuzzle.build(3, 5, 'normal');
+  return p.bank.length === p.blanks.length;
+})());
+check('보기에는 지운 말이 빠짐없이 들어 있다', (function () {
+  var p = RevPuzzle.build(3, 5, 'normal');
+  var want = p.blanks.map(function (i) { return p.words[i]; }).sort();
+  var got = p.bank.map(function (b) { return b.word; }).sort();
+  return JSON.stringify(want) === JSON.stringify(got);
+})());
+check('보기는 섞여 있다 (완벽 난이도 긴 절 기준)', (function () {
+  var p = RevPuzzle.build(22, 3, 'perfect');
+  var inOrder = p.bank.every(function (b, i) { return b.word === p.words[i]; });
+  return !inOrder;
+})());
+check('없는 절이면 문제를 만들지 않는다', RevPuzzle.build(1, 999, 'easy') === null);
+
+group('암송 퍼즐 — 채점');
+const pzA = RevPuzzle.build(1, 1, 'normal');
+function fillAll(p, transform) {
+  var out = {};
+  p.blanks.forEach(function (i) { out[i] = transform ? transform(p.words[i]) : p.words[i]; });
+  return out;
+}
+
+check('전부 맞으면 100점', RevPuzzle.check(pzA, fillAll(pzA)).score === 100);
+check('전부 맞으면 통과', RevPuzzle.check(pzA, fillAll(pzA)).cleared === true);
+check('하나도 안 채우면 0점', RevPuzzle.check(pzA, {}).score === 0);
+check('안 채운 칸은 빈칸으로 표시된다',
+  RevPuzzle.check(pzA, {}).results.every(function (r) { return r.empty && !r.correct; }));
+check('엉뚱한 말은 오답', RevPuzzle.check(pzA, fillAll(pzA, function () { return '엉뚱'; })).score === 0);
+check('문장부호가 붙어도 정답', RevPuzzle.check(pzA, fillAll(pzA, function (w) { return w + ','; })).score === 100);
+check('앞뒤 공백이 있어도 정답', RevPuzzle.check(pzA, fillAll(pzA, function (w) { return '  ' + w + ' '; })).score === 100);
+check('절반만 맞으면 절반 점수', (function () {
+  var half = {};
+  pzA.blanks.forEach(function (i, n) { if (n % 2 === 0) half[i] = pzA.words[i]; });
+  var r = RevPuzzle.check(pzA, half);
+  return r.correct === Math.ceil(pzA.total / 2) && r.score === Math.round(r.correct / r.total * 100);
+})());
+check('결과에 정답이 함께 담긴다',
+  RevPuzzle.check(pzA, {}).results.every(function (r) { return !!r.answer; }));
+
+check('아직 쓰지 않은 보기만 남는다', (function () {
+  var p = RevPuzzle.build(2, 2, 'normal');
+  var used = {}; used[p.bank[0].id] = 0;
+  return RevPuzzle.remainingBank(p, used).length === p.bank.length - 1;
+})());
+
+group('암송 퍼즐 — 절 이동');
+check('다음 절로 간다', JSON.stringify(RevPuzzle.step(1, 1, 1)) === JSON.stringify({ chapter: 1, verse: 2 }));
+check('이전 절로 간다', JSON.stringify(RevPuzzle.step(1, 2, -1)) === JSON.stringify({ chapter: 1, verse: 1 }));
+check('장 끝에서 다음 장 1절로 넘어간다',
+  JSON.stringify(RevPuzzle.step(1, RevData.getVerseCount(1), 1)) === JSON.stringify({ chapter: 2, verse: 1 }));
+check('장 처음에서 이전 장 마지막 절로 넘어간다',
+  JSON.stringify(RevPuzzle.step(2, 1, -1)) ===
+  JSON.stringify({ chapter: 1, verse: RevData.getVerseCount(1) }));
+check('맨 처음에서 이전은 없다', RevPuzzle.step(1, 1, -1) === null);
+check('맨 끝에서 다음은 없다', RevPuzzle.step(22, RevData.getVerseCount(22), 1) === null);
+
+group('암송 퍼즐 — 진도 저장 (암송 기록과 분리)');
+Store.clearPuzzle();
+Store.clearHistory();
+
+const pzB = RevPuzzle.build(5, 2, 'normal');
+RevPuzzle.record(pzB, RevPuzzle.check(pzB, fillAll(pzB)));
+
+check('푼 결과가 남는다', (RevPuzzle.bestOf(5, 2, 'normal') || {}).score === 100);
+check('통과 여부가 남는다', RevPuzzle.bestOf(5, 2, 'normal').cleared === true);
+check('시도 횟수가 쌓인다', (function () {
+  RevPuzzle.record(pzB, RevPuzzle.check(pzB, {}));
+  return RevPuzzle.bestOf(5, 2, 'normal').tries === 2;
+})());
+check('나중에 못 풀어도 최고 점수는 지켜진다', RevPuzzle.bestOf(5, 2, 'normal').score === 100);
+check('난이도가 다르면 따로 기록된다', RevPuzzle.bestOf(5, 2, 'hard') === null);
+check('푼 적 없는 절은 기록이 없다', RevPuzzle.bestOf(5, 3, 'normal') === null);
+
+check('퍼즐 점수는 암송 학습기록에 섞이지 않는다', Store.getHistory().length === 0);
+check('퍼즐 점수는 복습 일정에도 섞이지 않는다', Object.keys(Store.getSrs()).length === 0);
+
+check('장 진도를 센다', (function () {
+  var pr = RevPuzzle.chapterProgress(5, 'normal');
+  return pr.total === RevData.getVerseCount(5) && pr.cleared === 1;
+})());
+check('진도율을 계산한다', (function () {
+  var pr = RevPuzzle.chapterProgress(5, 'normal');
+  return pr.percent === Math.round(1 / RevData.getVerseCount(5) * 100);
+})());
+check('안 푼 장은 0%', RevPuzzle.chapterProgress(9, 'normal').percent === 0);
+
+check('보던 자리를 기억한다', (function () {
+  RevPuzzle.savePosition(7, 4, 'hard', 'type');
+  var st = RevPuzzle.load();
+  return st.chapter === 7 && st.verse === 4 && st.level === 'hard' && st.mode === 'type';
+})());
+check('저장된 값이 깨져 있어도 기본값으로 연다', (function () {
+  Store.savePuzzle({ chapter: 'x', verse: null, level: '???', mode: '???' });
+  var st = RevPuzzle.load();
+  return st.chapter === 1 && st.verse === 1 &&
+         st.level === RevPuzzle.DEFAULT_LEVEL && st.mode === RevPuzzle.DEFAULT_MODE;
+})());
+
+check('백업에 퍼즐 진도가 들어간다', (function () {
+  Store.clearPuzzle();
+  var p = RevPuzzle.build(6, 1, 'easy');
+  RevPuzzle.record(p, RevPuzzle.check(p, fillAll(p)));
+  var backup = Store.exportAll();
+  return backup.puzzle && backup.puzzle.best &&
+         Object.keys(backup.puzzle.best).length === 1;
+})());
+check('복원하면 퍼즐 진도가 돌아온다', (function () {
+  var backup = Store.exportAll();
+  Store.clearPuzzle();
+  Store.importAll(backup);
+  return (RevPuzzle.bestOf(6, 1, 'easy') || {}).cleared === true;
+})());
+check('퍼즐이 없는 예전 백업도 문제없이 복원된다',
+  Store.importAll({ favorites: [], history: [], settings: { hintPenalty: true } }) === true);
+
+Store.clearPuzzle();
+Store.clearHistory();
 
 /* ---------- 결과 ---------- */
 console.log('\n' + '─'.repeat(52));
