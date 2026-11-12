@@ -22,6 +22,8 @@
   };
 
   var HISTORY_LIMIT = 500;
+  var TEXT_KEEP = 150;    // 쓴 내용까지 보관하는 최근 기록 수 (다시 보기용)
+  var TEXT_MAX = 8000;    // 기록 하나에 보관하는 글자 수 상한
 
   var memoryFallback = {};
   var available = (function () {
@@ -171,10 +173,52 @@
       weakVerses: Array.isArray(attempt.weakVerses) ? attempt.weakVerses.slice(0, 30) : [],
       createdAt: new Date().toISOString()
     };
+
+    // 나중에 "지난 채점 다시 보기"를 할 수 있도록 그때 쓴 내용과 채점 조건을 함께 남긴다.
+    if (typeof attempt.text === 'string' && attempt.text.trim()) {
+      record.text = attempt.text.slice(0, TEXT_MAX);
+      record.strict = !!attempt.strict;
+      record.countNums = !!attempt.countNums;
+      record.hintPenalty = attempt.hintPenalty !== false;
+      // 오답만 연습은 절이 띄엄띄엄일 수 있어 어떤 절이었는지 따로 적어 둔다.
+      if (record.partial && Array.isArray(attempt.verseList)) {
+        record.verseList = attempt.verseList.map(Number).filter(function (n) { return n > 0; }).slice(0, 60);
+      }
+    }
+
     list.unshift(record);
     if (list.length > HISTORY_LIMIT) list = list.slice(0, HISTORY_LIMIT);
+    trimTexts(list, TEXT_KEEP);
+
     var ok = writeJSON(KEY.history, list);
+    if (!ok) {
+      // 저장 공간이 모자라면 쓴 내용을 더 덜어내고 한 번 더 시도한다. 점수 기록이 우선이다.
+      trimTexts(list, 20);
+      ok = writeJSON(KEY.history, list);
+    }
     return ok ? record : null;
+  }
+
+  /** 쓴 내용(text)은 최근 keep 개까지만 남긴다. 점수 등 나머지는 그대로 둔다. */
+  function trimTexts(list, keep) {
+    var seen = 0;
+    for (var i = 0; i < list.length; i++) {
+      if (!list[i] || typeof list[i].text !== 'string') continue;
+      seen++;
+      if (seen > keep) {
+        delete list[i].text;
+        delete list[i].verseList;
+      }
+    }
+    return list;
+  }
+
+  function getAttempt(id) {
+    var list = getHistory();
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].id === id) return list[i];
+    }
+    return null;
   }
 
   function clearHistory() { removeKey(KEY.history); }
@@ -278,6 +322,8 @@
     clearFavorites: clearFavorites,
     getHistory: getHistory,
     saveAttempt: saveAttempt,
+    getAttempt: getAttempt,
+    TEXT_KEEP: TEXT_KEEP,
     clearHistory: clearHistory,
     getSrs: getSrs,
     saveSrs: saveSrs,

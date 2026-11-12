@@ -23,6 +23,7 @@
     lastPlan: null,      // 직전 채점의 누적 암송 상태
     voiceBase: '',       // 음성 인식 시작 시점의 입력창 내용
     onlyWrong: false,    // 결과 화면에서 틀린 절만 볼지
+    reviewOf: null,      // 지난 채점을 다시 보는 중이면 그 기록
     compare: null,       // 같은 범위 직전 시도와의 비교
     attemptNo: 0,        // 같은 범위를 몇 번째 암송하는지
     report: null,        // 취합 결과 (메모리에만 유지)
@@ -162,6 +163,7 @@
     });
     var navKey = name;
     if (name === 'memorize' || name === 'result') navKey = 'select';
+    if (name === 'result' && state.reviewOf) navKey = 'history';
     else if (name === 'report') navKey = 'history';
     Array.prototype.forEach.call(document.querySelectorAll('[data-nav]'), function (btn) {
       if (btn.getAttribute('data-nav') === navKey) btn.setAttribute('aria-current', 'page');
@@ -312,6 +314,7 @@
     state.draft = '';
     state.hintLevel = 0;
     state.result = null;
+    state.reviewOf = null;
     global.Store.clearDraft();
     renderMemorize();
     startTimer();
@@ -543,8 +546,16 @@
         missingCount: result.counts.missing,
         extraCount: result.counts.extra,
         totalTokens: result.totalTokens,
-        weakVerses: result.weakVerses
+        weakVerses: result.weakVerses,
+        // 지난 채점 다시 보기용 — 그때 쓴 내용과 채점 조건
+        text: text,
+        strict: !!state.settings.strictPunctuation,
+        countNums: !!state.settings.countVerseNumbers,
+        hintPenalty: !!state.settings.hintPenalty,
+        verseList: state.passage.partial
+          ? state.passage.verses.map(function (v) { return v.verse; }) : null
       });
+      state.reviewOf = null;
 
       // 간격 반복 일정과 누적 암송 계획에 결과를 반영한다.
       var info = {
@@ -577,10 +588,61 @@
       isFavorite: global.Store.isFavorite(id),
       srs: state.lastSrs,
       planStatus: state.lastPlan,
+      review: state.reviewOf ? {
+        at: state.reviewOf.createdAt,
+        savedScore: state.reviewOf.score
+      } : null,
       onlyWrong: state.onlyWrong,
       compare: state.compare,
       attemptNo: state.attemptNo
     }));
+  }
+
+  /* ---------- 지난 채점 다시 보기 ---------- */
+
+  /**
+   * 기록에 남겨 둔 "그때 쓴 내용"을 그때의 조건으로 다시 채점해 결과 화면에 펼친다.
+   * 보기만 하는 것이므로 기록·복습 일정·누적 계획은 건드리지 않는다.
+   */
+  function openReview(id) {
+    var h = global.Store.getAttempt(id);
+    if (!h || typeof h.text !== 'string' || !h.text.trim()) {
+      global.UI.toast('이 기록은 쓴 내용이 남아 있지 않아 다시 볼 수 없습니다.', true);
+      return false;
+    }
+    var passage = (h.partial && Array.isArray(h.verseList) && h.verseList.length)
+      ? buildCustomPassage(h.chapter, h.verseList)
+      : global.RevData.getPassage(h.chapter, h.startVerse, h.endVerse);
+    if (!passage) { global.UI.toast('이 범위의 본문을 찾을 수 없습니다.', true); return false; }
+
+    var result;
+    try {
+      result = global.RevScorer.score(passage, h.text, {
+        hintsUsed: h.hintsUsed,
+        hintPenalty: h.hintPenalty !== false,
+        strictPunctuation: !!h.strict,
+        countVerseNumbers: !!h.countNums
+      });
+    } catch (e) {
+      global.UI.toast('다시 채점하는 중 문제가 생겼습니다.', true);
+      return false;
+    }
+
+    state.passage = passage;
+    state.selected.chapter = passage.chapter;
+    state.selected.startVerse = passage.startVerse;
+    state.selected.endVerse = passage.endVerse;
+    state.result = result;
+    state.lastUserText = h.text;
+    state.lastDuration = h.duration;
+    state.onlyWrong = false;
+    state.compare = null;
+    state.attemptNo = 0;
+    state.lastSrs = null;
+    state.lastPlan = null;
+    state.reviewOf = h;
+    go('result');
+    return true;
   }
 
   /* ---------- 즐겨찾기 ---------- */
@@ -941,6 +1003,9 @@
 
     switch (action) {
       case 'go-select': go('select'); break;
+
+      case 'review-attempt': openReview(el.getAttribute('data-id')); break;
+      case 'review-back': state.reviewOf = null; go('history'); break;
 
       case 'toggle-only-wrong':
         state.onlyWrong = !state.onlyWrong;
@@ -1440,7 +1505,10 @@
       if (e.altKey && (e.key === 'v' || e.key === 'V' || e.key === '√')) { e.preventDefault(); toggleVoice(); return; }
       if (e.key === 'Escape') { e.preventDefault(); stopTimer(); global.RevVoice.stop(); go('select'); return; }
     }
-    if (state.screen === 'result' && e.key === 'Escape') { e.preventDefault(); go('select'); }
+    if (state.screen === 'result' && e.key === 'Escape') {
+      e.preventDefault();
+      if (state.reviewOf) { state.reviewOf = null; go('history'); } else go('select');
+    }
     if (state.screen === 'report' && e.key === 'Escape') { e.preventDefault(); go('history'); }
 
     if (state.screen === 'read') {

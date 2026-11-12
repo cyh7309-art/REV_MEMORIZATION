@@ -223,7 +223,11 @@
       '<span class="row-meta">' + escapeHtml(global.RevStats.formatDate(h.createdAt)) +
       ' · ' + escapeHtml(global.RevStats.formatDuration(h.duration)) +
       (h.hintsUsed ? ' · 힌트 ' + h.hintsUsed : '') + '</span></button>' +
-      '<span class="row-score ' + scoreClass(h.score) + '">' + h.score + '점</span></li>';
+      '<span class="row-score ' + scoreClass(h.score) + '">' + h.score + '점</span>' +
+      (h.text ? '<button class="btn btn-sm btn-ghost" data-action="review-attempt" data-id="' + escapeHtml(h.id) +
+        '" type="button" aria-label="' + escapeHtml(global.RevData.shortRef(h.chapter, h.startVerse, h.endVerse)) +
+        ' 채점 다시 보기">다시 보기</button>' : '') +
+      '</li>';
   }
 
   /* ---------- 범위 선택 ---------- */
@@ -383,7 +387,22 @@
     var r = ctx.result;
     var c = r.counts;
 
-    var html = '<div class="card score-card">' +
+    var html = '';
+
+    /* 지난 채점을 다시 보는 중이면 그 사실을 맨 위에 밝힌다. */
+    if (ctx.review) {
+      var changed = (Number(ctx.review.savedScore) !== r.score);
+      html += '<div class="card review-banner"><div class="review-row">' +
+        '<div><b>지난 채점 다시 보기</b>' +
+        '<span class="muted"> · ' + escapeHtml(global.RevStats.formatDate(ctx.review.at)) + '에 쓴 내용입니다</span>' +
+        (changed ? '<p class="muted" style="margin:6px 0 0">기록에는 당시 점수 <b>' + ctx.review.savedScore +
+          '점</b>이 남아 있습니다. 그 뒤 채점 기준이 다듬어져 지금 기준으로는 ' + r.score + '점입니다.</p>' : '') +
+        '</div>' +
+        '<button class="btn btn-ghost btn-sm" data-action="review-back" type="button">◀ 기록으로</button>' +
+        '</div></div>';
+    }
+
+    html += '<div class="card score-card">' +
       '<div class="muted">' + escapeHtml(r.reference) + '</div>' +
       '<div class="score-num ' + scoreClass(r.score) + '">' + r.score + '<span>점</span></div>' +
       '<p class="score-msg">' + escapeHtml(r.message) + '</p>' +
@@ -983,7 +1002,7 @@
       html += '<p class="empty">아직 기록이 없습니다.</p>';
     } else {
       html += '<div class="table-wrap"><table class="table"><thead><tr>' +
-        '<th>날짜</th><th>범위</th><th class="num">점수</th><th class="num">정확도</th><th class="num">시간</th><th class="num">힌트</th>' +
+        '<th>날짜</th><th>범위</th><th class="num">점수</th><th class="num">정확도</th><th class="num">시간</th><th class="num">힌트</th><th>채점 내용</th>' +
         '</tr></thead><tbody>' +
         ctx.history.slice(0, 100).map(function (h) {
           return '<tr><td>' + escapeHtml(global.RevStats.formatDate(h.createdAt)) + '</td>' +
@@ -991,8 +1010,14 @@
             '<td class="num ' + scoreClass(h.score) + '"><b>' + h.score + '</b></td>' +
             '<td class="num">' + Math.round((h.accuracy || 0) * 100) + '%</td>' +
             '<td class="num">' + escapeHtml(global.RevStats.formatDuration(h.duration)) + '</td>' +
-            '<td class="num">' + (h.hintsUsed || 0) + '</td></tr>';
+            '<td class="num">' + (h.hintsUsed || 0) + '</td>' +
+            '<td>' + (h.text
+              ? '<button class="btn btn-sm btn-ghost" data-action="review-attempt" data-id="' + escapeHtml(h.id) +
+                '" type="button">다시 보기</button>'
+              : '<span class="muted" title="쓴 내용이 남아 있지 않은 기록입니다">점수만</span>') + '</td></tr>';
         }).join('') + '</tbody></table></div>';
+      html += '<p class="muted" style="margin-top:10px">다시 보기는 쓴 내용이 남아 있는 기록에서만 됩니다. ' +
+        '쓴 내용은 최근 ' + global.Store.TEXT_KEEP + '회까지 보관하고, 그보다 오래된 기록은 점수만 남깁니다.</p>';
       if (ctx.history.length > 100) {
         html += '<p class="muted" style="margin-top:10px">최근 100회만 표시합니다. (저장된 기록 ' + ctx.history.length + '회)</p>';
       }

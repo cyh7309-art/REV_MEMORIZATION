@@ -779,6 +779,107 @@ const LAUNCH = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PA
   ok('그만두기를 누르면 임시 저장을 남기지 않는다', (await page.evaluate(() => Store.getDraft())) === null);
   await page.evaluate(() => Store.clearHistory());
 
+  /* ---------- 지난 채점 다시 보기 ---------- */
+  await page.evaluate(() => {
+    Store.clearHistory();
+    // 이 기능이 생기기 전의 기록(쓴 내용 없음)을 하나 넣어 둔다
+    Store.saveAttempt({ chapter: 5, startVerse: 1, endVerse: 2, reference: '계 5:1~2', score: 77, accuracy: 0.7, duration: 60 });
+  });
+  await page.click('.side-nav [data-nav="select"]');
+  await page.waitForSelector('#selChapter');
+  await page.selectOption('#selChapter', '2');
+  await page.selectOption('#selStart', '1');
+  await page.selectOption('#selEnd', '3');
+  await page.click('[data-action="start"]');
+  await page.waitForSelector('#answerInput');
+  const rvTyped = await page.evaluate(() => {
+    const ps = RevData.getPassage(2, 1, 3);
+    return '1 ' + ps.verses[0].text.replace('오른손에', '왼손에') + ' 2 ' + ps.verses[1].text +
+           ' 3 ' + ps.verses[2].text.split(' ').slice(0, -2).join(' ') + ' 아멘';
+  });
+  await page.fill('#answerInput', rvTyped);
+  await page.click('[data-action="submit"]');
+  await page.waitForSelector('.score-num');
+  const liveScore = (await page.textContent('.score-num')).trim();
+  const liveTokens = await page.evaluate(() =>
+    [...document.querySelectorAll('#screen-result .tk')].map(e => e.className + '|' + e.textContent).join('§'));
+  ok('방금 채점한 화면에는 다시 보기 안내가 없다', (await page.locator('.review-banner').count()) === 0);
+
+  const beforeReview = await page.evaluate(() => ({
+    hist: Store.getHistory().length, srs: JSON.stringify(Store.getSrs()), plans: JSON.stringify(Store.getPlans())
+  }));
+
+  await page.click('.side-nav [data-nav="history"]');
+  await page.waitForSelector('#screen-history .table');
+  ok('쓴 내용이 남은 기록에 다시 보기 버튼이 있다',
+     (await page.locator('#screen-history .table [data-action="review-attempt"]').count()) === 1);
+  ok('쓴 내용이 없는 예전 기록은 점수만으로 표시된다',
+     (await page.textContent('#screen-history .table')).includes('점수만'));
+
+  await page.click('#screen-history .table [data-action="review-attempt"]');
+  await page.waitForSelector('#screen-result .review-banner');
+  ok('지난 채점 다시 보기 안내가 뜬다',
+     (await page.textContent('.review-banner')).includes('지난 채점 다시 보기'));
+  ok('그때 점수 그대로 나온다', (await page.textContent('.score-num')).trim() === liveScore,
+     (await page.textContent('.score-num')).trim() + ' vs ' + liveScore);
+  ok('어절별 표시가 그때와 똑같다', (await page.evaluate(() =>
+     [...document.querySelectorAll('#screen-result .tk')].map(e => e.className + '|' + e.textContent).join('§'))) === liveTokens);
+  ok('그때 쓴 내용을 볼 수 있다',
+     (await page.evaluate(() => RevApp.state.lastUserText)) === rvTyped);
+  ok('다시 보는 동안 메뉴는 학습기록에 표시된다',
+     (await page.getAttribute('.side-nav [data-nav="history"]', 'aria-current')) === 'page');
+
+  const afterReview = await page.evaluate(() => ({
+    hist: Store.getHistory().length, srs: JSON.stringify(Store.getSrs()), plans: JSON.stringify(Store.getPlans())
+  }));
+  ok('다시 보기는 기록을 늘리지 않는다', afterReview.hist === beforeReview.hist);
+  ok('다시 보기는 복습 일정을 건드리지 않는다', afterReview.srs === beforeReview.srs);
+  ok('다시 보기는 누적 계획을 건드리지 않는다', afterReview.plans === beforeReview.plans);
+
+  await page.locator('#screen-result .tk[data-action="explain"]').first().click();
+  ok('다시 보기에서도 어절을 눌러 자세히 볼 수 있다', await page.isVisible('.modal'));
+  await page.click('#modalClose');
+
+  await page.click('[data-action="review-back"]');
+  await page.waitForSelector('#screen-history .table');
+  ok('기록으로 돌아갈 수 있다', await page.isVisible('#screen-history .table'));
+
+  // 새로고침 뒤에도 다시 볼 수 있어야 한다 (기억이 아니라 저장된 것에서 연다)
+  await page.reload();
+  await page.waitForSelector('.hero-ref');
+  await page.click('.side-nav [data-nav="history"]');
+  await page.waitForSelector('#screen-history .table [data-action="review-attempt"]');
+  await page.click('#screen-history .table [data-action="review-attempt"]');
+  await page.waitForSelector('#screen-result .review-banner');
+  ok('새로고침 뒤에도 다시 볼 수 있다', (await page.textContent('.score-num')).trim() === liveScore);
+
+  // 다시 보기에서 "다시 암송"을 누르면 새 암송이 시작되고 안내는 사라진다
+  await page.click('[data-action="retry"]');
+  await page.waitForSelector('#answerInput');
+  ok('다시 보기에서 그 범위를 다시 암송할 수 있다',
+     (await page.textContent('.mem-ref')).includes('요한계시록 2:1-3'));
+  await page.fill('#answerInput', await page.evaluate(() => RevData.getPassage(2, 1, 3).fullText));
+  await page.click('[data-action="submit"]');
+  await page.waitForSelector('.score-num');
+  ok('새로 채점한 화면에는 다시 보기 안내가 없다', (await page.locator('.review-banner').count()) === 0);
+
+  // 오답만 연습(띄엄띄엄한 절)도 다시 볼 수 있다
+  const partialId = await page.evaluate(() => {
+    const sv = Store.saveAttempt({ chapter: 2, startVerse: 2, endVerse: 5, reference: '계 2:2,5', score: 100,
+      partial: true, verseList: [2, 5], hintsUsed: 0,
+      text: RevData.getVerse(2, 2) + ' ' + RevData.getVerse(2, 5) });
+    return sv.id;
+  });
+  await page.click('.side-nav [data-nav="history"]');
+  await page.waitForSelector('#screen-history .table');
+  await page.click('#screen-history .table [data-action="review-attempt"][data-id="' + partialId + '"]');
+  await page.waitForSelector('#screen-result .review-banner');
+  ok('오답만 연습 기록도 그 절들로 다시 열린다',
+     (await page.locator('#screen-result .diff-verse').count()) === 2 &&
+     (await page.textContent('.score-num')).trim().startsWith('100'));
+  await page.screenshot({ path: path.join(__dirname, 'shot-desktop-review.png'), fullPage: false });
+  await page.evaluate(() => Store.clearHistory());
+
   /* ---------- 안드로이드(갤럭시) 음성 중복 입력 회귀 방지 ----------
      갤럭시 크롬은 onresult 마다 resultIndex 를 0 으로 주면서 지금까지의 결과를
      통째로 다시 보낸다. 그 동작을 그대로 흉내내는 가짜 인식기를 심어

@@ -789,3 +789,8 @@ details.fold > div{ padding:0 16px 16px; }
   .seg-sm .seg-btn{ font-size:12px; }
   .pz-nav .btn{ flex:1 1 44%; }
 }
+
+/* ---------- 지난 채점 다시 보기 ---------- */
+.review-banner{ border-color:#C3D6EC; background:var(--extra-bg); margin-bottom:16px; }
+.review-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.review-banner b{ color:var(--navy); }

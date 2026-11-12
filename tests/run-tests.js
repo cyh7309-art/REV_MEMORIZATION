@@ -1163,6 +1163,83 @@ check('임시 저장은 백업 파일에 들어가지 않는다', (function () {
 })());
 check('임시 저장은 학습 기록에 섞이지 않는다', Store.getHistory().length === 0);
 
+group('지난 채점 다시 보기 — 쓴 내용 보관');
+Store.clearHistory();
+const rvPassage = RevData.getPassage(2, 1, 3);
+const rvTyped = '1 ' + rvPassage.verses[0].text.replace('오른손에', '왼손에') + ' 2 ' +
+                rvPassage.verses[1].text + ' 3 ' + rvPassage.verses[2].text.split(' ').slice(0, -2).join(' ');
+const rvResult = tally(rvPassage, rvTyped);
+const rvSaved = Store.saveAttempt({
+  chapter: 2, startVerse: 1, endVerse: 3, reference: '계 2:1~3',
+  score: rvResult.score, accuracy: rvResult.accuracy, duration: 120, hintsUsed: 0,
+  weakVerses: rvResult.weakVerses, text: rvTyped, strict: false, countNums: false, hintPenalty: true
+});
+
+check('쓴 내용이 기록에 남는다', Store.getAttempt(rvSaved.id).text === rvTyped);
+check('채점 조건이 함께 남는다', (function () {
+  var h = Store.getAttempt(rvSaved.id);
+  return h.strict === false && h.countNums === false && h.hintPenalty === true;
+})());
+check('없는 기록은 null', Store.getAttempt('없는-id') === null);
+
+check('남긴 내용으로 다시 채점하면 그때 점수가 그대로 나온다', (function () {
+  var h = Store.getAttempt(rvSaved.id);
+  var again = RevScorer.score(RevData.getPassage(h.chapter, h.startVerse, h.endVerse), h.text, {
+    hintsUsed: h.hintsUsed, hintPenalty: h.hintPenalty, strictPunctuation: h.strict, countVerseNumbers: h.countNums
+  });
+  return again.score === h.score && JSON.stringify(again.counts) === JSON.stringify(rvResult.counts);
+})());
+
+check('그때의 채점 조건을 따른다 (절 번호 채점을 켰던 기록)', (function () {
+  var strictRun = tally(rvPassage, rvTyped, { countVerseNumbers: true });
+  var sv = Store.saveAttempt({ chapter: 2, startVerse: 1, endVerse: 3, score: strictRun.score,
+    text: rvTyped, countNums: true });
+  var h = Store.getAttempt(sv.id);
+  var again = RevScorer.score(rvPassage, h.text, { hintsUsed: 0, countVerseNumbers: h.countNums });
+  return h.countNums === true && again.score === strictRun.score && again.counts.extra === 3;
+})());
+
+check('내용 없이 저장한 기록에는 text 가 없다', (function () {
+  var sv = Store.saveAttempt({ chapter: 4, startVerse: 1, endVerse: 2, score: 80 });
+  return Store.getAttempt(sv.id).text === undefined;
+})());
+check('빈 내용은 남기지 않는다', (function () {
+  var sv = Store.saveAttempt({ chapter: 4, startVerse: 1, endVerse: 2, score: 0, text: '   ' });
+  return Store.getAttempt(sv.id).text === undefined;
+})());
+check('오답만 연습은 어떤 절이었는지도 남긴다', (function () {
+  var sv = Store.saveAttempt({ chapter: 2, startVerse: 2, endVerse: 7, score: 70, partial: true,
+    text: '내용', verseList: [2, 5, 7] });
+  return JSON.stringify(Store.getAttempt(sv.id).verseList) === '[2,5,7]';
+})());
+check('아주 긴 내용은 잘라서 보관한다', (function () {
+  var sv = Store.saveAttempt({ chapter: 1, startVerse: 1, endVerse: 20, score: 10, text: new Array(20001).join('가') });
+  return Store.getAttempt(sv.id).text.length <= 8000;
+})());
+
+check('쓴 내용은 최근 ' + Store.TEXT_KEEP + '회까지만 보관한다', (function () {
+  Store.clearHistory();
+  for (var i = 0; i < Store.TEXT_KEEP + 25; i++) {
+    Store.saveAttempt({ chapter: 1, startVerse: 1, endVerse: 1, score: 50, text: '내용 ' + i });
+  }
+  var list = Store.getHistory();
+  var withText = list.filter(function (h) { return typeof h.text === 'string'; }).length;
+  return list.length === Store.TEXT_KEEP + 25 && withText === Store.TEXT_KEEP;
+})());
+check('보관되는 것은 가장 최근 것들이다', (function () {
+  var list = Store.getHistory();
+  return typeof list[0].text === 'string' && list[list.length - 1].text === undefined;
+})());
+check('내용이 빠져도 점수 기록은 그대로다', (function () {
+  var list = Store.getHistory();
+  return list[list.length - 1].score === 50 && RevStats.summarize(list).total === Store.TEXT_KEEP + 25;
+})());
+check('취합 보고서는 쓴 내용이 있어도 그대로 집계한다', (function () {
+  var rep = RevReport.aggregate([{ name: 'a.json', data: Store.exportAll() }]);
+  return rep.totals.attempts === Store.TEXT_KEEP + 25;
+})());
+Store.clearHistory();
+
 /* ---------- 결과 ---------- */
 console.log('\n' + '─'.repeat(52));
 if (fail === 0) {
