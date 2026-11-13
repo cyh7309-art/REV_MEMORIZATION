@@ -693,6 +693,32 @@ const LAUNCH = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PA
   /* ---------- 퍼즐 직접 입력: Enter 로 이동 ---------- */
   await page.click('[data-action="pz-mode"][data-mode="type"]');
   await page.waitForTimeout(180);
+  // 실제로 글자를 쳐 넣고 칸을 옮긴다. (값이 바뀐 채 칸을 떠나면 change 신호가 나는데,
+  //  예전에는 그 신호를 범위 선택으로 잘못 받아 암송하기 화면으로 튕겨 나갔다)
+  await page.locator('#screen-puzzle .pz-input').first().click();
+  await page.keyboard.type('아무말');
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(120);
+  ok('글자를 쓰고 Tab 을 눌러도 퍼즐 화면에 그대로 있다',
+     (await page.evaluate(() => RevApp.state.screen)) === 'puzzle' &&
+     (await page.isVisible('#screen-puzzle .pz-text')),
+     await page.evaluate(() => RevApp.state.screen));
+  ok('쓴 글자가 지워지지 않는다',
+     (await page.locator('#screen-puzzle .pz-input').first().inputValue()) === '아무말');
+  ok('둘째 칸으로 넘어가 있다', await page.evaluate(() => {
+    const boxes = [...document.querySelectorAll('#screen-puzzle .pz-input')];
+    return boxes.indexOf(document.activeElement) === 1;
+  }));
+  await page.keyboard.type('둘째');
+  await page.locator('#screen-puzzle .pz-input').nth(2).click();     // 마우스로 다른 칸을 눌러도 마찬가지
+  await page.waitForTimeout(120);
+  ok('마우스로 다른 칸을 눌러도 퍼즐 화면에 그대로 있다',
+     (await page.evaluate(() => RevApp.state.screen)) === 'puzzle' &&
+     (await page.locator('#screen-puzzle .pz-input').nth(1).inputValue()) === '둘째');
+  ok('범위 선택 화면이 엉뚱하게 열리지 않는다', await page.locator('#screen-select').isHidden());
+  await page.click('[data-action="pz-clear"]');
+  await page.waitForTimeout(120);
+
   await page.locator('#screen-puzzle .pz-input').first().focus();
   await page.keyboard.press('Tab');
   ok('Tab 을 누르면 다음 빈칸으로 넘어간다', await page.evaluate(() => {

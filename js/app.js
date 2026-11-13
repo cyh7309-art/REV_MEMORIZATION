@@ -1417,7 +1417,16 @@
       renderPuzzle();
       return;
     }
-    if (role) {
+    if (role === 'pz-type') {
+      // 퍼즐 빈칸에 쓴 값은 적어만 두고 화면은 그대로 둔다.
+      // (여기서 다른 화면을 그리면 칸을 옮길 때마다 퍼즐에서 튕겨 나간다)
+      var pi = Number(t.getAttribute('data-i'));
+      var pv = (t.value || '').trim();
+      if (pv) state.puzzle.filled[pi] = pv; else delete state.puzzle.filled[pi];
+      return;
+    }
+    // 암송 범위 선택(장 · 시작 절 · 종료 절)만 여기서 처리한다. 다른 입력이 끼어들지 못하게 이름을 못박는다.
+    if (role === 'chapter' || role === 'start' || role === 'end') {
       var sel = state.selected;
       var value = Number(t.value);
       if (role === 'chapter') {
