@@ -694,21 +694,50 @@ const LAUNCH = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PA
   await page.click('[data-action="pz-mode"][data-mode="type"]');
   await page.waitForTimeout(180);
   await page.locator('#screen-puzzle .pz-input').first().focus();
-  await page.keyboard.press('Enter');
-  ok('Enter 를 누르면 다음 빈칸으로 넘어간다', await page.evaluate(() => {
+  await page.keyboard.press('Tab');
+  ok('Tab 을 누르면 다음 빈칸으로 넘어간다', await page.evaluate(() => {
     const boxes = [...document.querySelectorAll('#screen-puzzle .pz-input')];
     return boxes.indexOf(document.activeElement) === 1;
   }));
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Shift+Tab');
+  ok('Shift+Tab 으로 이전 빈칸으로 돌아간다', await page.evaluate(() => {
+    const boxes = [...document.querySelectorAll('#screen-puzzle .pz-input')];
+    return boxes.indexOf(document.activeElement) === 1;
+  }));
+  ok('Tab 만으로는 제출되지 않는다', (await page.locator('#screen-puzzle .pz-result').count()) === 0);
+
   await page.evaluate(() => {
     const p = RevApp.state.puzzle;
     document.querySelectorAll('#screen-puzzle [data-role="pz-type"]').forEach(el => {
       el.value = p.data.words[Number(el.getAttribute('data-i'))];
     });
   });
-  await page.locator('#screen-puzzle .pz-input').last().focus();
+  // 마지막 칸이 아니라 첫 칸에서 Enter — 어느 칸에서든 제출되어야 한다
+  await page.locator('#screen-puzzle .pz-input').first().focus();
   await page.keyboard.press('Enter');
   await page.waitForSelector('#screen-puzzle .pz-result');
-  ok('마지막 칸에서 Enter 를 누르면 채점된다', (await page.textContent('.pz-result')).includes('100점'));
+  ok('어느 칸에서든 Enter 를 누르면 정답이 제출된다', (await page.textContent('.pz-result')).includes('100점'));
+
+  // 한글 조합 중의 Enter: 글자가 확정된 뒤에 제출되어 마지막 글자가 빠지지 않아야 한다
+  await page.click('[data-action="pz-retry"]');
+  await page.waitForTimeout(150);
+  const imeScore = await page.evaluate(() => new Promise(resolve => {
+    const p = RevApp.state.puzzle;
+    const boxes = [...document.querySelectorAll('#screen-puzzle [data-role="pz-type"]')];
+    boxes.forEach(el => { el.value = p.data.words[Number(el.getAttribute('data-i'))]; });
+    const last = boxes[boxes.length - 1];
+    const full = last.value;
+    last.value = full.slice(0, -1);               // 마지막 글자는 아직 조합 중
+    last.focus();
+    last.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 229, isComposing: true, bubbles: true }));
+    const early = !!RevApp.state.puzzle.result;   // 여기서 제출되면 글자가 빠진다
+    last.value = full;                            // 조합이 끝나 글자가 확정됨
+    last.dispatchEvent(new CompositionEvent('compositionend', { data: full.slice(-1), bubbles: true }));
+    setTimeout(() => resolve({ early, score: (RevApp.state.puzzle.result || {}).score }), 80);
+  }));
+  ok('한글 조합 중 Enter 는 글자가 확정된 뒤에 제출된다',
+     imeScore.early === false && imeScore.score === 100, JSON.stringify(imeScore));
   await page.click('[data-action="pz-mode"][data-mode="pick"]');
   await page.waitForTimeout(120);
 

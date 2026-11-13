@@ -980,6 +980,14 @@
     });
 
     document.addEventListener('keydown', onKeyDown);
+    // 한글 조합이 끝난 뒤로 미뤄 둔 퍼즐 제출을 처리한다.
+    document.addEventListener('compositionend', function (e) {
+      if (!puzzleSubmitAfterCompose) return;
+      puzzleSubmitAfterCompose = false;
+      if (state.screen !== 'puzzle' || state.puzzle.result) return;
+      if (!e.target || !e.target.getAttribute || e.target.getAttribute('data-role') !== 'pz-type') return;
+      global.setTimeout(function () { if (!state.puzzle.result) puzzleSubmit(); }, 0);
+    });
     // 탭이 가려지거나 닫히기 직전에는 기다리지 않고 바로 저장한다. (휴대폰은 예고 없이 탭을 닫는다)
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'hidden') saveDraftNow();
@@ -1483,16 +1491,20 @@
     }
   }
 
+  var puzzleSubmitAfterCompose = false;
+
   function onKeyDown(e) {
-    // 퍼즐 직접 입력: Enter 로 다음 빈칸, 마지막 칸에서는 채점
-    if (state.screen === 'puzzle' && e.key === 'Enter' && !e.isComposing &&
+    // 퍼즐 직접 입력: Tab 은 다음 칸(브라우저 기본 동작), Enter 는 어느 칸에서든 정답 제출.
+    if (state.screen === 'puzzle' && e.key === 'Enter' &&
         e.target && e.target.getAttribute && e.target.getAttribute('data-role') === 'pz-type') {
       e.preventDefault();
-      var boxes = Array.prototype.slice.call(
-        document.querySelectorAll('#screen-puzzle [data-role="pz-type"]'));
-      var at = boxes.indexOf(e.target);
-      if (at >= 0 && at < boxes.length - 1) boxes[at + 1].focus();
-      else if (!state.puzzle.result) puzzleSubmit();
+      if (e.isComposing || e.keyCode === 229) {
+        // 한글을 조합하는 중의 Enter 는 글자를 확정하는 데 쓰인다.
+        // 확정이 끝난 직후(compositionend)에 제출해야 마지막 글자가 빠지지 않는다.
+        puzzleSubmitAfterCompose = true;
+      } else if (!state.puzzle.result) {
+        puzzleSubmit();
+      }
       return;
     }
     if (!document.getElementById('modalBack').hidden && e.key === 'Escape') {

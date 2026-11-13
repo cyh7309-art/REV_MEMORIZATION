@@ -847,7 +847,7 @@
 
     /* 보기 */
     if (ctx.mode === 'type' && !res) {
-      html += '<p class="muted" style="margin:12px 0 0">Enter 를 누르면 다음 빈칸으로 넘어가고, 마지막 칸에서는 채점합니다.</p>';
+      html += '<p class="muted" style="margin:12px 0 0">Tab 으로 다음 빈칸, Shift+Tab 으로 이전 빈칸으로 옮기고, Enter 를 누르면 정답을 제출합니다.</p>';
     }
     if (ctx.mode === 'pick' && !res) {
       var rest = ctx.bank;
